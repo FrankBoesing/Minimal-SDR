@@ -13,6 +13,22 @@
   I2C-SDA : PIN 18
   =================
 
+  Hardware:
+  * MCP2036
+   
+  How does it work:
+  * Teensy produces LO RX frequency on BCLK (pin 9) or MCLK (pin 11) 
+  * MCP2036 mixes LO with RF coming from antenna --> direct conversion
+  * MCP amplifies and lowpass filters the IF signal 
+  * Teensy ADC samples incoming IF signal with sample rate == IF * 4
+  * Software Oscillators cos & sin are used to produce I & Q signals and simultaneously translate the I & Q signals to audio baseband
+  * I & Q are filtered by linear phase FIR [tbd]
+  * Demodulation --> SSB, AM or synchronous AM
+  * Decoding of time signals or other digital modes [tbd]
+  * auto-notch filter to eliminate birdies
+  * IIR biquad filter to shape baseband audio
+  * Audio output through Teensy DAC
+
 *********************************************************************/
 
 
@@ -59,7 +75,7 @@ Adafruit_SSD1306 display(OLED_RESET);
 #define AUDIOMEMORY     20
 
 uint8_t ANR_on      =    0;            // automatic notch filter ON/OFF 
-#define _IF             12000        // intermediate frequency
+#define _IF             6000        // intermediate frequency
 #define SAMPLE_RATE     (_IF * 4)   // new Audio-Library sample rate
 #define CORR_FACT       (AUDIO_SAMPLE_RATE_EXACT / SAMPLE_RATE) // Audio-Library correction factor
 
@@ -377,7 +393,7 @@ void setup()   {
   // Linkwitz-Riley: gain = {0.54, 1.3, 0.54, 1.3}
   // notch is very good, even with small Q
   // we have to restrict our audio bandwidth to at least 0.5 * IF,
-  const float cutoff_freq = _IF * 0.35 * CORR_FACT;
+  const float cutoff_freq = _IF * 0.5 * CORR_FACT;
   biquad1_dac.setLowpass(0,  cutoff_freq, 0.54);
   biquad1_dac.setLowpass(1, cutoff_freq, 1.3);
   biquad1_dac.setLowpass(2, cutoff_freq, 0.54);
@@ -385,7 +401,7 @@ void setup()   {
   biquad2_dac.setLowpass(0, cutoff_freq, 0.54);
   biquad2_dac.setLowpass(1, cutoff_freq, 1.3);
   biquad2_dac.setLowpass(2, cutoff_freq, 0.54);
-  biquad2_dac.setNotch(3, 3000 * CORR_FACT, 2.0); // eliminates some birdy
+  //biquad2_dac.setNotch(3, 3000 * CORR_FACT, 2.0); // eliminates some birdy
   amp_dac.gain(2.0); //amplifier before DAC
 
   AudioProcessorUsageMaxReset();
