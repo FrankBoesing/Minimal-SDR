@@ -57,28 +57,6 @@ Adafruit_SSD1306 display(OLED_RESET);
 #endif //if OLED
 
 
-#define I2S_FREQ_START  234000 //RTL
-//#define I2S_FREQ_START  531000 // Jil FM, Algeria
-//#define I2S_FREQ_START  639000 //Cesky R
-
-//#define I2S_FREQ_START  4810000 // Armenia Radio
-
-//#define I2S_FREQ_START  5970000 // China Radio Intl
-//#define I2S_FREQ_START  6040000 // Radio Romania Intl
-//#define I2S_FREQ_START  6110000 //
-
-//#define I2S_FREQ_START  9525000 //
-//#define I2S_FREQ_START  9565000 //
-//#define I2S_FREQ_START  9590000 //
-
-//#define I2S_FREQ_START  11530000 //
-
-//#define I2S_FREQ_START  9995500 // Russian time signal
-//#define I2S_FREQ_START  9420000 // Greece
-
-
-
-
 #define AUDIOMEMORY     20
 #define _IF             13000        // intermediate frequency
 #define SAMPLE_RATE     (_IF * 4)   // new Audio-Library sample rate
