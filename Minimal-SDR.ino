@@ -63,10 +63,11 @@ Adafruit_SSD1306 display(OLED_RESET);
 
 //#define I2S_FREQ_START  4810000 // Armenia Radio
 
-//#define I2S_FREQ_START  5970000 // China Radio Intl
+#define I2S_FREQ_START  5970000 // China Radio Intl
 //#define I2S_FREQ_START  6040000 // Radio Romania Intl
+//#define I2S_FREQ_START  6110000 // 
 
-#define I2S_FREQ_START  9525000 // 
+//#define I2S_FREQ_START  9525000 // 
 //#define I2S_FREQ_START  9565000 // 
 //#define I2S_FREQ_START  9590000 // 
 
@@ -79,7 +80,7 @@ Adafruit_SSD1306 display(OLED_RESET);
 
 
 #define AUDIOMEMORY     20
-#define _IF             12000        // intermediate frequency
+#define _IF             13000        // intermediate frequency
 #define SAMPLE_RATE     (_IF * 4)   // new Audio-Library sample rate
 #define CORR_FACT       (AUDIO_SAMPLE_RATE_EXACT / SAMPLE_RATE) // Audio-Library correction factor
 
@@ -246,6 +247,7 @@ void tune(float freq) {
 
 void setup()   {
   AudioMemory(AUDIOMEMORY);
+  queue_adc.begin();
   initI2S();
 
 #if OLED
@@ -277,7 +279,7 @@ void setup()   {
   // Linkwitz-Riley: gain = {0.54, 1.3, 0.54, 1.3}
   // notch is very good, even with small Q
   // we have to restrict our audio bandwidth to at least 0.5 * IF, 
-  const float cutoff_freq = _IF * 0.4 * CORR_FACT;
+  const float cutoff_freq = _IF * 0.35 * CORR_FACT;
   biquad1_dac.setLowpass(0,  cutoff_freq, 0.54);
   biquad1_dac.setLowpass(1, cutoff_freq, 1.3);
   biquad1_dac.setLowpass(2, cutoff_freq, 0.54);
@@ -289,7 +291,6 @@ void setup()   {
   amp_dac.gain(2.0); //amplifier before DAC
   
   AudioProcessorUsageMaxReset();
-  queue_adc.begin();
 }
 
 
