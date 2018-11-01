@@ -94,6 +94,66 @@ enum  { LSB, USB, AM, SYNCAM };
 int mode = SYNCAM;
 //int mode = USB;
 
+//-------------------------------------------------------
+
+#include <EEPROM.h>
+#include <util/crc16.h>
+
+struct memory_t {
+  float freq;
+  uint8_t mode;
+  char name[15];
+};
+
+//CRC is 2 bytes, stored at position EEPROM.length - 2
+#define MAX_EMEMORY 20
+memory_t eMemory[MAX_EMEMORY];
+uint16_t eepromCrc;
+
+uint16_t EEPROMCrc(void) {
+  uint16_t crc = 0;
+  for (int i = 0; i < EEPROM.length() - 2; i++) {
+    crc = _crc16_update(crc, (uint8_t) EEPROM.read(i));
+  }
+  return crc;
+}
+
+uint16_t EEPROMreadStoredCrc(void) {
+  int len = EEPROM.length();
+  return EEPROM.read(len - 2) << 8 | EEPROM.read(len - 1);
+}
+
+void EEPROMwriteCrc(void) {
+  int len = EEPROM.length();
+  uint16_t crc = EEPROMCrc();
+  EEPROM.write(len - 2, crc >> 8);
+  EEPROM.write(len - 1, crc & 0xff);
+  eepromCrc = EEPROMreadStoredCrc();
+}
+
+void initEEPROM(void) {
+  
+  //1. Calculate CRC to check if content is valid
+
+  int len = EEPROM.length();
+  uint16_t crc = EEPROMCrc();
+  eepromCrc = EEPROMreadStoredCrc();
+  //Serial.printf("EEPROM length: %d CRC:%x Stored:%x\n", EEPROM.length(), crc, eepromCrc);
+  
+  if (crc != eepromCrc) {
+    //CRC check was not OK, delete EEPROM and store new CRC
+    Serial.println("Erasing EEPROM");
+    for (int i = 0; i < len - 2; i++) {
+      if (EEPROM.read(i) != 0xff) EEPROM.write(i, 0xff);
+    }
+    EEPROMwriteCrc();    
+  }
+      
+  eeprom_read_block(eMemory, 0, sizeof(eMemory));
+  
+}
+
+//-------------------------------------------------------
 void showFreq(float freq)
 {
   //  Serial.print(freq / 1000.0, 4);
@@ -247,7 +307,7 @@ void tune(float freq) {
 
 void setup()   {
   AudioMemory(AUDIOMEMORY);
-  queue_adc.begin();
+  initEEPROM();  
   initI2S();
 
 #if OLED
@@ -291,6 +351,7 @@ void setup()   {
   amp_dac.gain(2.0); //amplifier before DAC
   
   AudioProcessorUsageMaxReset();
+  queue_adc.begin();
 }
 
 
