@@ -360,6 +360,7 @@ void demodulation(int mode) {
     //-------------------------------------------------------
     case SYNCAM: {
         // synchronous AM demodulation - the one with the PLL ;-)
+        // code adapted from the wdsp library by Warren Pratt, GNU GPLv3
         static const float32_t omegaN = 400.0;
         static const float32_t zeta = 0.65;
         static const float32_t omega_min = 2.0 * PI * - 4000.0 / SAMPLE_RATE;
