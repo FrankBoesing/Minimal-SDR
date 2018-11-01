@@ -27,14 +27,16 @@ AudioAmplifier           amp_adc;           //xy=583,313
 AudioRecordQueue         queue_adc;      //xy=754,310
 
 AudioPlayQueue           queue_dac;      //xy=442,233
-AudioFilterBiquad        biquad_dac;        //xy=613,234
+AudioFilterBiquad        biquad1_dac;        //xy=613,234
+AudioFilterBiquad        biquad2_dac;        //xy=613,234
 AudioAmplifier           amp_dac;           //xy=764,230
 AudioOutputAnalog        dac1;           //xy=914,227
 
 AudioConnection          patchCord1(adc1, amp_adc);
-AudioConnection          patchCord2(queue_dac, biquad_dac);
+AudioConnection          patchCord2(queue_dac, biquad1_dac);
 AudioConnection          patchCord3(amp_adc, queue_adc);
-AudioConnection          patchCord4(biquad_dac, amp_dac);
+AudioConnection          patchCord4a(biquad1_dac, biquad2_dac);
+AudioConnection          patchCord4(biquad2_dac, amp_dac);
 AudioConnection          patchCord5(amp_dac, dac1);
 
 
@@ -55,8 +57,8 @@ Adafruit_SSD1306 display(OLED_RESET);
 #endif //if OLED
 
 
-#define I2S_FREQ_START  234000 //RTL
-//#define I2S_FREQ_START  639000 //
+//#define I2S_FREQ_START  234000 //RTL
+#define I2S_FREQ_START  639000 //Cesky R
 
 
 #define AUDIOMEMORY     20
@@ -254,10 +256,18 @@ void setup()   {
   tune(freq);
 
   amp_adc.gain(1.5); //amplifier after ADC (is this needed?)
-  
-  biquad_dac.setLowpass(0, 10000 * CORR_FACT, 0.1);
-  biquad_dac.setLowpass(1, 10000 * CORR_FACT, 0.1);
-  biquad_dac.setLowpass(2, 10000 * CORR_FACT, 0.2);
+
+  // Linkwitz-Riley: gain = {0.54, 1.3, 0.54, 1.3}
+  // notch is very good, even with small Q
+  const float cutoff_freq = 4500.0 * CORR_FACT;
+  biquad1_dac.setLowpass(0,  cutoff_freq, 0.54);
+  biquad1_dac.setLowpass(1, cutoff_freq, 1.3);
+  biquad1_dac.setLowpass(2, cutoff_freq, 0.54);
+  biquad1_dac.setLowpass(3, cutoff_freq, 1.3);
+  biquad2_dac.setLowpass(0, cutoff_freq, 0.54);
+  biquad2_dac.setLowpass(1, cutoff_freq, 1.3);
+  biquad2_dac.setLowpass(2, cutoff_freq, 0.54);
+  biquad2_dac.setNotch(3, 3000 * CORR_FACT, 2.0); // eliminates some birdy
   amp_dac.gain(2.0); //amplifier before DAC
   
   AudioProcessorUsageMaxReset();
