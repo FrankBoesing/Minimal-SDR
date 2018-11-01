@@ -58,11 +58,28 @@ Adafruit_SSD1306 display(OLED_RESET);
 
 
 //#define I2S_FREQ_START  234000 //RTL
-#define I2S_FREQ_START  639000 //Cesky R
+//#define I2S_FREQ_START  531000 // Jil FM, Algeria
+//#define I2S_FREQ_START  639000 //Cesky R
+
+//#define I2S_FREQ_START  4810000 // Armenia Radio
+
+//#define I2S_FREQ_START  5970000 // China Radio Intl
+//#define I2S_FREQ_START  6040000 // Radio Romania Intl
+
+#define I2S_FREQ_START  9525000 // 
+//#define I2S_FREQ_START  9565000 // 
+//#define I2S_FREQ_START  9590000 // 
+
+//#define I2S_FREQ_START  11530000 // 
+
+//#define I2S_FREQ_START  9995500 // Russian time signal
+//#define I2S_FREQ_START  9420000 // Greece
+
+
 
 
 #define AUDIOMEMORY     20
-#define _IF             6000        // intermediate frequency
+#define _IF             12000        // intermediate frequency
 #define SAMPLE_RATE     (_IF * 4)   // new Audio-Library sample rate
 #define CORR_FACT       (AUDIO_SAMPLE_RATE_EXACT / SAMPLE_RATE) // Audio-Library correction factor
 
@@ -74,6 +91,7 @@ const char sdrname[] = "Mini - SDR";
 
 enum  { LSB, USB, AM, SYNCAM };
 int mode = SYNCAM;
+//int mode = USB;
 
 void showFreq(float freq)
 {
@@ -258,7 +276,8 @@ void setup()   {
 
   // Linkwitz-Riley: gain = {0.54, 1.3, 0.54, 1.3}
   // notch is very good, even with small Q
-  const float cutoff_freq = 4500.0 * CORR_FACT;
+  // we have to restrict our audio bandwidth to at least 0.5 * IF, 
+  const float cutoff_freq = _IF * 0.4 * CORR_FACT;
   biquad1_dac.setLowpass(0,  cutoff_freq, 0.54);
   biquad1_dac.setLowpass(1, cutoff_freq, 1.3);
   biquad1_dac.setLowpass(2, cutoff_freq, 0.54);
@@ -316,6 +335,13 @@ void demodulation(int mode) {
 
   int16_t * p_adc;
   p_adc = queue_adc.readBuffer();
+
+  // frequency translation without multiplication
+  // multiply the signal from the ADC with a Cosine for I channel
+  // multiply the signal from the ADC with a Sine   for Q channel 
+  // if IF == sample rate / 4, 
+  // the Cosine is {1, 0, -1, 0, 1, 0, -1, 0 . . . .}
+  // and the Sine is {0, 1, 0, -1, 0, 1, 0, -1 . . . .}
   for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
 
     I_buffer[i]     = p_adc[i];
@@ -331,8 +357,11 @@ void demodulation(int mode) {
   }
   queue_adc.freeBuffer();
 
+// TODO:
 
-
+// Here, we have to filter separately the I & Q channel with a linear phase filter
+// so a FIR filter with symmetrical coefficients should be used
+// Do not use an IIR filter
 
   /*
     - demodulation
@@ -371,12 +400,12 @@ void demodulation(int mode) {
     case SYNCAM: {
         // synchronous AM demodulation - the one with the PLL ;-)
         // code adapted from the wdsp library by Warren Pratt, GNU GPLv3
-        static const float32_t omegaN = 400.0;
-        static const float32_t zeta = 0.65;
-        static const float32_t omega_min = 2.0 * PI * - 4000.0 / SAMPLE_RATE;
-        static const float32_t omega_max = 2.0 * PI * 4000.0 / SAMPLE_RATE;
-        static const float32_t g1 = 1.0 - exp(-2.0 * omegaN * zeta / SAMPLE_RATE);
-        static const float32_t g2 = - g1 + 2.0 * (1 - exp(- omegaN * zeta / SAMPLE_RATE) * cosf(omegaN / SAMPLE_RATE * sqrtf(1.0 - zeta * zeta)));
+        static const float32_t omegaN = 400.0; // PLL is able to grab a carrier that is not more than omegaN Hz away
+        static const float32_t zeta = 0.65; // the higher, the faster the PLL, the lower, the more stable the carrier is grabbed
+        static const float32_t omega_min = 2.0 * PI * - 4000.0 / SAMPLE_RATE; // absolute minimum frequency the PLL can correct for
+        static const float32_t omega_max = 2.0 * PI * 4000.0 / SAMPLE_RATE; // absolute maximum frequency the PLL can correct for
+        static const float32_t g1 = 1.0 - exp(-2.0 * omegaN * zeta / SAMPLE_RATE); // used inside the algorithm
+        static const float32_t g2 = - g1 + 2.0 * (1 - exp(- omegaN * zeta / SAMPLE_RATE) * cosf(omegaN / SAMPLE_RATE * sqrtf(1.0 - zeta * zeta))); // used inside the algorithm
 
         static float32_t fil_out = 0.0;
         static float32_t omega2 = 0.0;
@@ -408,6 +437,8 @@ void demodulation(int mode) {
           audio = corr[0];
           p_dac[i] = audio;
 
+          // BEWARE: with a Teensy 3.2 in fixed point, this will really take a lot of time to calculate!
+          // use atan2 in that case 
           det = atan2f(corr[1], corr[0]);
 
           del_out = fil_out;
