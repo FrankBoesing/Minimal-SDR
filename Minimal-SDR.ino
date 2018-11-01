@@ -228,7 +228,6 @@ void tune(float freq) {
 
 void setup()   {
   AudioMemory(AUDIOMEMORY);
-  queue_adc.begin();
   initI2S();
 
 #if OLED
@@ -271,6 +270,7 @@ void setup()   {
   amp_dac.gain(2.0); //amplifier before DAC
   
   AudioProcessorUsageMaxReset();
+  queue_adc.begin();
 }
 
 
