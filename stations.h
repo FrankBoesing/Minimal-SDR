@@ -13,6 +13,7 @@ const station_t stations_default[] =
   /*  0 */ {234000, SYNCAM, "RTL"},
   /*  1 */ {531000, SYNCAM, "Jil FM, Algeria"},
   /*  2 */ {639000, SYNCAM, "Cesky R"},
+           {638500, USB, "Cesky R"}, 
   /*  3 */ {1215000, SYNCAM, "G Absolute Radio"},
   /*  4 */ {4810000, SYNCAM, "Armenia Radio"},
   /*  5 */ {5970000, SYNCAM, "China Radio Intl"},

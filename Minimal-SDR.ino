@@ -58,7 +58,7 @@ Adafruit_SSD1306 display(OLED_RESET);
 
 #define AUDIOMEMORY     20
 
-#define ANR_on          0            // automatic notch filter ON/OFF 
+uint8_t ANR_on      =    0;            // automatic notch filter ON/OFF 
 #define _IF             12000        // intermediate frequency
 #define SAMPLE_RATE     (_IF * 4)   // new Audio-Library sample rate
 #define CORR_FACT       (AUDIO_SAMPLE_RATE_EXACT / SAMPLE_RATE) // Audio-Library correction factor
@@ -450,6 +450,18 @@ void loop() {
       settings.lastMode = mode;
       tune(freq);
     }
+    else if (ch == 'N') {
+      if(ANR_on) 
+      { 
+        ANR_on = 0;
+        Serial.println("Auto-Notch OFF");
+      }
+      else 
+      {
+        ANR_on = 1;
+        Serial.println("Auto-Notch ON");
+      }
+    }
     else if (ch == '!') {
       EEPROMsaveSettings();
       Serial.println("Settings saved");
@@ -621,7 +633,7 @@ const int ANR_delay =    16; //16;                       // delay
 const int ANR_dline_size = ANR_DLINE_SIZE;
 const int ANR_buff_size = AUDIO_BLOCK_SAMPLES;
 static int ANR_position = 0;
-const float32_t ANR_two_mu =   0.0001;                     // two_mu --> "gain"
+const float32_t ANR_two_mu =   0.001;   //0.0001                  // two_mu --> "gain"
 const float32_t ANR_gamma =    0.1;                      // gamma --> "leakage"
 static float32_t ANR_lidx =     120.0;                      // lidx
 const float32_t ANR_lidx_min = 0.0;                      // lidx_min
@@ -635,9 +647,7 @@ static int ANR_in_idx = 0;
 static float32_t ANR_d [ANR_DLINE_SIZE];
 static float32_t ANR_w [ANR_DLINE_SIZE];
 
-//uint8_t ANR_notch = 0;
-
-if(ANR_on) {
+if(ANR_on == 1) {
 // variable leak LMS algorithm for automatic notch or noise reduction
 // (c) Warren Pratt wdsp library 2016
   int i, j, idx;
