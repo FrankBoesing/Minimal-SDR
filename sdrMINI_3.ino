@@ -22,12 +22,21 @@
 #include <SD.h>
 #include <SerialFlash.h>
 
-AudioInputAnalog         adc1;
-AudioRecordQueue         queue_adc;
-AudioOutputAnalog        dac1;
-AudioPlayQueue           queue_dac;
-AudioConnection          patchCord1(adc1, queue_adc);
-AudioConnection          patchCord2(queue_dac, dac1);
+AudioInputAnalog         adc1;           //xy=429,313
+AudioAmplifier           amp_adc;           //xy=583,313
+AudioRecordQueue         queue_adc;      //xy=754,310
+
+AudioPlayQueue           queue_dac;      //xy=442,233
+AudioFilterBiquad        biquad_dac;        //xy=613,234
+AudioAmplifier           amp_dac;           //xy=764,230
+AudioOutputAnalog        dac1;           //xy=914,227
+
+AudioConnection          patchCord1(adc1, amp_adc);
+AudioConnection          patchCord2(queue_dac, biquad_dac);
+AudioConnection          patchCord3(amp_adc, queue_adc);
+AudioConnection          patchCord4(biquad_dac, amp_dac);
+AudioConnection          patchCord5(amp_dac, dac1);
+
 
 #define OLED 1
 
@@ -48,12 +57,15 @@ Adafruit_SSD1306 display(OLED_RESET);
 
 #define I2S_FREQ_START  234000 //RTL
 //#define I2S_FREQ_START  639000 //
+
+
 #define AUDIOMEMORY     20
 #define _IF             6000        // intermediate frequency
-#define SAMPLE_RATE     (_IF * 4)
+#define SAMPLE_RATE     (_IF * 4)   // new Audio-Library sample rate
+#define CORR_FACT       (AUDIO_SAMPLE_RATE_EXACT / SAMPLE_RATE) // Audio-Library correction factor
 
 #define I2S_FREQ_MAX    36000000
-#define I2S0_TCR2_DIV   (0)
+#define I2S0_TCR2_DIV   0
 
 
 const char sdrname[] = "Mini - SDR";
@@ -240,6 +252,14 @@ void setup()   {
   Serial.println();
 
   tune(freq);
+
+  amp_adc.gain(1.5); //amplifier after ADC (is this needed?)
+  
+  biquad_dac.setLowpass(0, 10000 * CORR_FACT, 0.1);
+  biquad_dac.setLowpass(1, 10000 * CORR_FACT, 0.1);
+  biquad_dac.setLowpass(2, 10000 * CORR_FACT, 0.2);
+  amp_dac.gain(2.0); //amplifier before DAC
+  
   AudioProcessorUsageMaxReset();
 }
 
