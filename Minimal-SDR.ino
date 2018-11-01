@@ -195,6 +195,11 @@ void showFreq(float freq, int mode)
   display.fillRect(0, 20 + 3 * 8, 4 * 8, 8, 0);
   display.println(modestr[mode]);
 
+  display.setTextSize(1);
+  display.setCursor(0, 20 + 4 * 8);
+  display.fillRect(0, 20 + 4 * 8, 4 * 8, 8, 0);
+  if(ANR_on == 1) display.println("Notch");
+
   display.setTextSize(size);
   display.fillRect(x, y, display.width(), size * 8, 0);
   display.setCursor(x, y);
@@ -407,7 +412,7 @@ void printAudioLibStatistics(void) {
 #endif
 }
 
-int input = 0;
+int32_t input = 0;
 
 void loop() {
   asm ("wfi");
@@ -455,11 +460,13 @@ void loop() {
       { 
         ANR_on = 0;
         Serial.println("Auto-Notch OFF");
+        tune(freq);
       }
       else 
       {
         ANR_on = 1;
         Serial.println("Auto-Notch ON");
+        tune(freq);
       }
     }
     else if (ch == '!') {
@@ -468,6 +475,7 @@ void loop() {
     }
     else if (ch >= '0' && ch <= '9') {
       input = input * 10 + (ch - '0');
+      //Serial.print("Input = "); Serial.println(input);
     } else if (ch == '\r') {
       if (input > 0) {
         freq = input;
