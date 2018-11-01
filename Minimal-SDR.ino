@@ -57,21 +57,21 @@ Adafruit_SSD1306 display(OLED_RESET);
 #endif //if OLED
 
 
-//#define I2S_FREQ_START  234000 //RTL
+#define I2S_FREQ_START  234000 //RTL
 //#define I2S_FREQ_START  531000 // Jil FM, Algeria
 //#define I2S_FREQ_START  639000 //Cesky R
 
 //#define I2S_FREQ_START  4810000 // Armenia Radio
 
-#define I2S_FREQ_START  5970000 // China Radio Intl
+//#define I2S_FREQ_START  5970000 // China Radio Intl
 //#define I2S_FREQ_START  6040000 // Radio Romania Intl
-//#define I2S_FREQ_START  6110000 // 
+//#define I2S_FREQ_START  6110000 //
 
-//#define I2S_FREQ_START  9525000 // 
-//#define I2S_FREQ_START  9565000 // 
-//#define I2S_FREQ_START  9590000 // 
+//#define I2S_FREQ_START  9525000 //
+//#define I2S_FREQ_START  9565000 //
+//#define I2S_FREQ_START  9590000 //
 
-//#define I2S_FREQ_START  11530000 // 
+//#define I2S_FREQ_START  11530000 //
 
 //#define I2S_FREQ_START  9995500 // Russian time signal
 //#define I2S_FREQ_START  9420000 // Greece
@@ -89,25 +89,32 @@ Adafruit_SSD1306 display(OLED_RESET);
 
 
 const char sdrname[] = "Mini - SDR";
+#include "stations.h"
 
-enum  { LSB, USB, AM, SYNCAM };
+float freq;
 int mode = SYNCAM;
 //int mode = USB;
+
 
 //-------------------------------------------------------
 
 #include <EEPROM.h>
 #include <util/crc16.h>
 
-struct memory_t {
-  float freq;
-  uint8_t mode;
-  char name[15];
+//CRC is 2 bytes, stored at position EEPROM.length - 2
+
+#define MAX_EMEMORY 20
+#define EEPROM_STORAGE_VERSION 1
+
+struct settings_t {
+  uint8_t version;
+  uint8_t lastStation;
+  float lastFreq;
+  uint8_t lastMode;
+  station_t station[MAX_EMEMORY];
 };
 
-//CRC is 2 bytes, stored at position EEPROM.length - 2
-#define MAX_EMEMORY 20
-memory_t eMemory[MAX_EMEMORY];
+settings_t settings;
 uint16_t eepromCrc;
 
 uint16_t EEPROMCrc(void) {
@@ -131,30 +138,71 @@ void EEPROMwriteCrc(void) {
   eepromCrc = EEPROMreadStoredCrc();
 }
 
+void EEPROMsaveSettings(void) {
+  eeprom_write_block(&settings, 0, sizeof(settings));
+  EEPROMwriteCrc();
+}
+
 void initEEPROM(void) {
-  
+
   //1. Calculate CRC to check if content is valid
 
   int len = EEPROM.length();
   uint16_t crc = EEPROMCrc();
   eepromCrc = EEPROMreadStoredCrc();
   //Serial.printf("EEPROM length: %d CRC:%x Stored:%x\n", EEPROM.length(), crc, eepromCrc);
-  
-  if (crc != eepromCrc) {
+
+  if (crc != eepromCrc || EEPROM.read(0) != EEPROM_STORAGE_VERSION ) {
     //CRC check was not OK, delete EEPROM and store new CRC
     Serial.println("Erasing EEPROM");
     for (int i = 0; i < len - 2; i++) {
       if (EEPROM.read(i) != 0xff) EEPROM.write(i, 0xff);
     }
-    EEPROMwriteCrc();    
+
+    //Init default values:
+    settings.version = EEPROM_STORAGE_VERSION;
+    settings.lastStation = 0;
+    settings.lastFreq = 0;
+    settings.lastMode = SYNCAM;
+    memset(settings.station, 0xff, sizeof(settings.station));
+    memcpy(settings.station, stations_default, sizeof(stations_default));
+    EEPROMsaveSettings();
   }
-      
-  eeprom_read_block(eMemory, 0, sizeof(eMemory));
-  
+
+  eeprom_read_block(&settings, 0, sizeof(settings));
+
+#if 1
+  Serial.println("EEPROM:");
+  Serial.printf("Settings version: %d\n", settings.version);
+  Serial.printf("Last Station: %d\n", settings.lastStation);
+  Serial.printf("Last Freq: %d\n", settings.lastFreq);
+  Serial.printf("Last Mode: %d\n", settings.lastMode);
+  int i = 0;
+  while (settings.station[i].mode != 0xff) {
+    Serial.printf("%d. %d\t%s\t%s\n", i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
+    i++;
+  }
+#endif
+
+}
+//-------------------------------------------------------
+
+void loadLastSettings(void) {
+
+  if (settings.lastFreq != 0) {
+    freq = settings.lastFreq;
+    mode = settings.lastMode;
+  } else {
+    int i = settings.lastStation;
+    freq = settings.station[i].freq;
+    mode = settings.station[i].mode;
+  }
+
 }
 
 //-------------------------------------------------------
-void showFreq(float freq)
+
+void showFreq(float freq, int mode)
 {
   //  Serial.print(freq / 1000.0, 4);
   //  Serial.println("kHz");
@@ -162,6 +210,11 @@ void showFreq(float freq)
   const int x = 0;
   const int y = 20;
   const int size = 3;
+
+  display.setTextSize(1);
+  display.setCursor(0, 20 + 3 * 8);
+  display.fillRect(0, 20 + 3 * 8, 4 * 8, 8, 0);
+  display.println(modestr[mode]);
 
   display.setTextSize(size);
   display.fillRect(x, y, display.width(), size * 8, 0);
@@ -274,15 +327,13 @@ void initI2S(void)
 
 }
 
-
-float freq = I2S_FREQ_START;
-
-
 void tune(float freq) {
   float freq_actual;
   float freq_diff;
   float pdb_freq;
   float pdb_freq_actual;
+
+  AudioNoInterrupts();
 
   // BCLK:
   freq_actual = setI2S_freq(freq + _IF);
@@ -292,7 +343,7 @@ void tune(float freq) {
   pdb_freq = freq_diff * 4.0 + SAMPLE_RATE;     //*4.0 due to I/Q
   pdb_freq_actual = setPDB_freq(pdb_freq);
 
-  showFreq(freq);
+  showFreq(freq, mode);
 
 #if 1
   Serial.println("Tune:");
@@ -301,13 +352,20 @@ void tune(float freq) {
   Serial.println();
 #endif
 
+  AudioInterrupts();
 }
 
 
 
 void setup()   {
   AudioMemory(AUDIOMEMORY);
-  initEEPROM();  
+
+  Serial.println(sdrname);
+  Serial.printf("F_CPU: %dMHz F_BUS: %dMHz\n", (int) (F_CPU / 1000000), (int) (F_BUS / 1000000));
+  Serial.printf("IF: %dHz Samplerate: %dHz\n", _IF, _IF * 4 );
+  Serial.println();
+
+  initEEPROM();
   initI2S();
 
 #if OLED
@@ -327,18 +385,14 @@ void setup()   {
   display.display();
 #endif
 
-  Serial.println(sdrname);
-  Serial.printf("F_CPU: %dMHz F_BUS: %dMHz\n", (int) (F_CPU / 1000000), (int) (F_BUS / 1000000));
-  Serial.printf("IF: %dHz Samplerate: %dHz\n", _IF, _IF * 4 );
-  Serial.println();
-
+  loadLastSettings();
   tune(freq);
 
   amp_adc.gain(1.5); //amplifier after ADC (is this needed?)
 
   // Linkwitz-Riley: gain = {0.54, 1.3, 0.54, 1.3}
   // notch is very good, even with small Q
-  // we have to restrict our audio bandwidth to at least 0.5 * IF, 
+  // we have to restrict our audio bandwidth to at least 0.5 * IF,
   const float cutoff_freq = _IF * 0.35 * CORR_FACT;
   biquad1_dac.setLowpass(0,  cutoff_freq, 0.54);
   biquad1_dac.setLowpass(1, cutoff_freq, 1.3);
@@ -349,7 +403,7 @@ void setup()   {
   biquad2_dac.setLowpass(2, cutoff_freq, 0.54);
   biquad2_dac.setNotch(3, 3000 * CORR_FACT, 2.0); // eliminates some birdy
   amp_dac.gain(2.0); //amplifier before DAC
-  
+
   AudioProcessorUsageMaxReset();
   queue_adc.begin();
 }
@@ -374,10 +428,66 @@ void printAudioLibStatistics(void) {
 #endif
 }
 
+int input = 0;
+
 void loop() {
   asm ("wfi");
   demodulation(mode);
   printAudioLibStatistics();
+
+  if (Serial.available()) {
+    char ch = Serial.read();
+
+    if (ch >= 'a' && ch <= 'z') {
+      int i = ch - 'a';
+      if (settings.station[i].mode != 0xff) {
+        settings.lastStation = i;
+        settings.lastFreq = 0;
+        freq = settings.station[i].freq;
+        mode = settings.station[i].mode;
+        Serial.printf("%d. %d\t%s\t%s\n", i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
+        tune(freq);
+      } else {
+        Serial.println("Empty");
+      }
+    }
+    else if (ch == 'L') {      
+      mode = LSB;
+      settings.lastMode = mode;
+      tune(freq);
+    }
+    else if (ch == 'U') {
+      mode = USB;
+      settings.lastMode = mode;
+      tune(freq);
+    }
+    else if (ch == 'A') {
+      mode = AM;
+      settings.lastMode = mode;
+      tune(freq);
+    }
+    else if (ch == 'S') {
+      mode = SYNCAM;
+      settings.lastMode = mode;
+      tune(freq);
+    }
+    else if (ch == '!') {
+      EEPROMsaveSettings();
+      Serial.println("Settings saved");
+    }
+    else if (ch >= '0' && ch <= '9') {
+      input = input * 10 + (ch - '0');
+    } else if (ch == '\r') {
+      if (input > 0) {
+        freq = input;
+        settings.lastFreq = input;
+        input = 0;
+        tune(freq);
+      }
+    }
+
+  }
+
 }
 
 
@@ -400,8 +510,8 @@ void demodulation(int mode) {
 
   // frequency translation without multiplication
   // multiply the signal from the ADC with a Cosine for I channel
-  // multiply the signal from the ADC with a Sine   for Q channel 
-  // if IF == sample rate / 4, 
+  // multiply the signal from the ADC with a Sine   for Q channel
+  // if IF == sample rate / 4,
   // the Cosine is {1, 0, -1, 0, 1, 0, -1, 0 . . . .}
   // and the Sine is {0, 1, 0, -1, 0, 1, 0, -1 . . . .}
   for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
@@ -419,11 +529,11 @@ void demodulation(int mode) {
   }
   queue_adc.freeBuffer();
 
-// TODO:
+  // TODO:
 
-// Here, we have to filter separately the I & Q channel with a linear phase filter
-// so a FIR filter with symmetrical coefficients should be used
-// Do not use an IIR filter
+  // Here, we have to filter separately the I & Q channel with a linear phase filter
+  // so a FIR filter with symmetrical coefficients should be used
+  // Do not use an IIR filter
 
   /*
     - demodulation
@@ -500,7 +610,7 @@ void demodulation(int mode) {
           p_dac[i] = audio;
 
           // BEWARE: with a Teensy 3.2 in fixed point, this will really take a lot of time to calculate!
-          // use atan2 in that case 
+          // use atan2 in that case
           det = atan2f(corr[1], corr[0]);
 
           del_out = fil_out;
