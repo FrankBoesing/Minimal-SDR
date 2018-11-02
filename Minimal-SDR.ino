@@ -93,6 +93,8 @@ settings_t settings;
 unsigned long time_needed     = 0;
 unsigned long time_needed_max = 0;
 
+int16_t minval = 32767;
+int16_t maxval = -minval;
 unsigned long demodulation(void);
 
 //-------------------------------------------------------
@@ -398,6 +400,7 @@ void printAudioLibStatistics(void) {
     Serial.printf("AudioMemoryUsageMax: %d Blocks\n", AudioMemoryUsageMax());
     Serial.printf("AudioProcessorUsageMax: %.2f%%\n", AudioProcessorUsageMax());
     Serial.printf("Demodulation t-max: %d%cs\n", time_needed_max, 'µ');
+    Serial.printf("Min: %d  Max: %d   Offset: %.2fmV   ADC-Bits: %d\n", minval, maxval, (minval + maxval) * 1200.0 / 65536.0  , 16 - (__builtin_clz (max(-minval,maxval)) - 16));
   }
 
 #endif
@@ -486,8 +489,8 @@ void loop() {
 
 //-------------------------------------------------------
 
-int I_buffer[AUDIO_BLOCK_SAMPLES];
-int Q_buffer[AUDIO_BLOCK_SAMPLES];
+int16_t I_buffer[AUDIO_BLOCK_SAMPLES];
+int16_t Q_buffer[AUDIO_BLOCK_SAMPLES];
 
 unsigned long demodulation(void) {
 
@@ -501,16 +504,15 @@ unsigned long demodulation(void) {
       I/Q conversion
   */
 
-
-  int16_t * p_adc;
-  p_adc = queue_adc.readBuffer();
-
   // frequency translation without multiplication
   // multiply the signal from the ADC with a Cosine for I channel
   // multiply the signal from the ADC with a Sine   for Q channel
   // if IF == sample rate / 4,
   // the Cosine is {1, 0, -1, 0, 1, 0, -1, 0 . . . .}
   // and the Sine is {0, 1, 0, -1, 0, 1, 0, -1 . . . .}
+#if 0
+  int16_t * p_adc;
+  p_adc = queue_adc.readBuffer();
   for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
 
     I_buffer[i]     = p_adc[i];
@@ -524,6 +526,54 @@ unsigned long demodulation(void) {
     Q_buffer[i + 3] = - p_adc[i + 3];
 
   }
+#else  
+  int16_t * p_adc;
+  p_adc = queue_adc.readBuffer();
+  int16_t min = minval;
+  int16_t max = maxval;
+  for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
+/*
+    // Load next two samples in a single access
+    uint32_t data = *__SIMD32(p32_adc)++;    
+    I_buffer[i + 0] = (int16_t) (data >> 16);
+    Q_buffer[i + 1] = (int16_t) data;
+*/
+    int16_t s0 = p_adc[i + 0];
+    int16_t s1 = p_adc[i + 1];
+    I_buffer[i]     = s0;
+    Q_buffer[i + 1] = s1;
+    uint32_t data = (((uint16_t)s0)<<16) | s1;
+    
+    (void)__SSUB16(max, data);// Parallel comparison of max and new samples    
+    max = __SEL(max, data);   // Select max on each 16-bits half    
+    (void)__SSUB16(data, min);// Parallel comparison of new samples and min
+    min = __SEL(min, data);   // Select min on each 16-bits half    
+
+    s0 = p_adc[i + 2]; 
+    s1 = p_adc[i + 3]; 
+    I_buffer[i + 2] = - s0;
+    Q_buffer[i + 3] = - s1;
+    data = (((uint16_t)s0)<<16) | s1;
+
+    (void)__SSUB16(max, data);
+    max = __SEL(max, data);
+    (void)__SSUB16(data, min);
+    min = __SEL(min, data);
+#if 0    
+    I_buffer[i + 1] = I_buffer[i + 3] = 0;            
+    Q_buffer[i + 0] = Q_buffer[i + 2] = 0;            
+#endif
+  }
+  // Now we have maximum on even samples on low halfword of max
+  // and maximum on odd samples on high halfword
+  // look for max between halfwords 1 & 0 by comparing on low halfword  
+  (void)__SSUB16(max, max >> 16);
+  maxval = __SEL(max, max >> 16);// Select max on low 16-bits
+  (void)__SSUB16(min >> 16, min);// look for min between halfwords 1 & 0 by comparing on low halfword
+  minval = __SEL(min, min >> 16);// Select min on low 16-bits
+    
+#endif 
+  
   queue_adc.freeBuffer();
 
   // TODO:
