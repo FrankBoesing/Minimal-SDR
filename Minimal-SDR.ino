@@ -30,7 +30,6 @@
     Audio output through Teensy DAC
 
 *********************************************************************/
-
 #include "stations.h"
 #include <util/crc16.h>
 
@@ -307,6 +306,9 @@ void tune(float freq) {
 
   AudioNoInterrupts();
   PDB0_SC = 0;
+#if !(defined(__MK66FX1M0__))
+  if (mode == SYNCAM) mode = AM;
+#endif
 
   // BCLK:
   freq_actual = setI2S_freq(freq + _IF);
@@ -361,7 +363,7 @@ void setup()   {
   display.display();
 #endif
 
-  amp_adc.gain(1.5); //amplifier after ADC (is this needed?)
+  //amp_adc.gain(1.5); //amplifier after ADC (is this needed?)
 
   // Linkwitz-Riley: gain = {0.54, 1.3, 0.54, 1.3}
   // notch is very good, even with small Q
@@ -400,7 +402,8 @@ void printAudioLibStatistics(void) {
     Serial.printf("AudioMemoryUsageMax: %d Blocks\n", AudioMemoryUsageMax());
     Serial.printf("AudioProcessorUsageMax: %.2f%%\n", AudioProcessorUsageMax());
     Serial.printf("Demodulation t-max: %d%cs\n", time_needed_max, 'µ');
-    Serial.printf("Min: %d  Max: %d   Offset: %.2fmV   ADC-Bits: %d\n", minval, maxval, (minval + maxval) * 1200.0 / 65536.0  , 16 - (__builtin_clz (max(-minval,maxval)) - 16));
+    Serial.printf("Min: %d  Max: %d   Offset: %.2fmV   ADC-Bits: %d\n", minval, maxval, (minval + maxval) * 1.2f / 65536.0  , 16 - (__builtin_clz (max(-minval, maxval)) - 16));
+    minval = maxval = 0;
   }
 
 #endif
@@ -446,6 +449,7 @@ void serialUI(void) {
     settings.lastMode = mode;
     tune(freq);
   }
+#if defined(__MK66FX1M0__)
   else if (ch == 'N') {
     if (ANR_on)
     {
@@ -460,6 +464,7 @@ void serialUI(void) {
       tune(freq);
     }
   }
+#endif
   else if (ch == '!') {
     EEPROMsaveSettings();
     Serial.println("Settings saved");
@@ -489,8 +494,8 @@ void loop() {
 
 //-------------------------------------------------------
 
-int16_t I_buffer[AUDIO_BLOCK_SAMPLES];
-int16_t Q_buffer[AUDIO_BLOCK_SAMPLES];
+int32_t I_buffer[AUDIO_BLOCK_SAMPLES];
+int32_t Q_buffer[AUDIO_BLOCK_SAMPLES];
 
 unsigned long demodulation(void) {
 
@@ -526,54 +531,54 @@ unsigned long demodulation(void) {
     Q_buffer[i + 3] = - p_adc[i + 3];
 
   }
-#else  
+#else
   int16_t * p_adc;
   p_adc = queue_adc.readBuffer();
   int16_t min = minval;
   int16_t max = maxval;
   for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
-/*
-    // Load next two samples in a single access
-    uint32_t data = *__SIMD32(p32_adc)++;    
-    I_buffer[i + 0] = (int16_t) (data >> 16);
-    Q_buffer[i + 1] = (int16_t) data;
-*/
+    /*
+        // Load next two samples in a single access
+        uint32_t data = *__SIMD32(p32_adc)++;
+        I_buffer[i + 0] = (int16_t) (data >> 16);
+        Q_buffer[i + 1] = (int16_t) data;
+    */
     int16_t s0 = p_adc[i + 0];
     int16_t s1 = p_adc[i + 1];
     I_buffer[i]     = s0;
     Q_buffer[i + 1] = s1;
-    uint32_t data = (((uint16_t)s0)<<16) | s1;
-    
-    (void)__SSUB16(max, data);// Parallel comparison of max and new samples    
-    max = __SEL(max, data);   // Select max on each 16-bits half    
-    (void)__SSUB16(data, min);// Parallel comparison of new samples and min
-    min = __SEL(min, data);   // Select min on each 16-bits half    
+    uint32_t data = (((uint16_t)s0) << 16) | s1;
 
-    s0 = p_adc[i + 2]; 
-    s1 = p_adc[i + 3]; 
+    (void)__SSUB16(max, data);// Parallel comparison of max and new samples
+    max = __SEL(max, data);   // Select max on each 16-bits half
+    (void)__SSUB16(data, min);// Parallel comparison of new samples and min
+    min = __SEL(min, data);   // Select min on each 16-bits half
+
+    s0 = p_adc[i + 2];
+    s1 = p_adc[i + 3];
     I_buffer[i + 2] = - s0;
     Q_buffer[i + 3] = - s1;
-    data = (((uint16_t)s0)<<16) | s1;
+    data = (((uint16_t)s0) << 16) | s1;
 
     (void)__SSUB16(max, data);
     max = __SEL(max, data);
     (void)__SSUB16(data, min);
     min = __SEL(min, data);
-#if 0    
-    I_buffer[i + 1] = I_buffer[i + 3] = 0;            
-    Q_buffer[i + 0] = Q_buffer[i + 2] = 0;            
+#if 0
+    I_buffer[i + 1] = I_buffer[i + 3] = 0;
+    Q_buffer[i + 0] = Q_buffer[i + 2] = 0;
 #endif
   }
   // Now we have maximum on even samples on low halfword of max
   // and maximum on odd samples on high halfword
-  // look for max between halfwords 1 & 0 by comparing on low halfword  
+  // look for max between halfwords 1 & 0 by comparing on low halfword
   (void)__SSUB16(max, max >> 16);
   maxval = __SEL(max, max >> 16);// Select max on low 16-bits
   (void)__SSUB16(min >> 16, min);// look for min between halfwords 1 & 0 by comparing on low halfword
   minval = __SEL(min, min >> 16);// Select min on low 16-bits
-    
-#endif 
-  
+
+#endif
+
   queue_adc.freeBuffer();
 
   // TODO:
@@ -605,7 +610,8 @@ unsigned long demodulation(void) {
         }
         break;
       }
-    //-------------------------------------------------------
+      //-------------------------------------------------------
+#if defined(__MK64FX512__) || defined(__MK66FX1M0__)
     case AM: {
         float32_t audio;
 
@@ -615,6 +621,16 @@ unsigned long demodulation(void) {
         }
         break;
       }
+#else
+    case AM: {
+        q31_t audio;
+        for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
+          arm_sqrt_q31 (  I_buffer[i] *  I_buffer[i] + Q_buffer[i] * Q_buffer[i], &audio );
+          p_dac[i] = audio >> 16;
+        }
+        break;
+      }
+#endif
     //-------------------------------------------------------
     case SYNCAM: {
         // synchronous AM demodulation - the one with the PLL ;-)
@@ -683,8 +699,8 @@ unsigned long demodulation(void) {
   // Variable-leak LMS algorithm
   // taken from (c) Warren Pratts wdsp library 2016
   // GPLv3 licensed
-#define ANR_DLINE_SIZE 512 //256 //512 //2048 funktioniert nicht, 128 & 256 OK                 // dline_size
-  static const int ANR_taps =     64; //64;                       // taps
+#define ANR_DLINE_SIZE 256 //256 //512 //2048 funktioniert nicht, 128 & 256 OK                 // dline_size
+  static const int ANR_taps =     32; //64;                       // taps
   static const int ANR_delay =    16; //16;                       // delay
   static const int ANR_dline_size = ANR_DLINE_SIZE;
   static const int ANR_buff_size = AUDIO_BLOCK_SAMPLES;
