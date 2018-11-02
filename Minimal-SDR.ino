@@ -31,6 +31,8 @@
 
 *********************************************************************/
 
+#include "stations.h"
+#include <util/crc16.h>
 
 #include <Audio.h>
 #include <Wire.h>
@@ -54,7 +56,6 @@ AudioConnection          patchCord3(amp_adc, queue_adc);
 AudioConnection          patchCord4a(biquad1_dac, biquad2_dac);
 AudioConnection          patchCord4(biquad2_dac, amp_dac);
 AudioConnection          patchCord5(amp_dac, dac1);
-
 
 #define OLED 1
 
@@ -83,96 +84,56 @@ Adafruit_SSD1306 display(OLED_RESET);
 
 
 const char sdrname[] = "Mini - SDR";
-#include "stations.h"
-
+int mode             = SYNCAM;
+uint8_t ANR_on       =    0;         // automatic notch filter ON/OFF
 float freq;
-int mode = SYNCAM;
-uint8_t ANR_on      =    0;         // automatic notch filter ON/OFF
 
 //-------------------------------------------------------
 
-#include <EEPROM.h>
-#include <util/crc16.h>
-
-//CRC is 2 bytes, stored at position EEPROM.length - 2
-
-#define MAX_EMEMORY 20
-#define EEPROM_STORAGE_VERSION 1
-
-struct settings_t {
-  uint8_t version;
-  uint8_t lastStation;
-  float lastFreq;
-  uint8_t lastMode;
-  station_t station[MAX_EMEMORY];
-};
+//#include <EEPROM.h>
 
 settings_t settings;
-uint16_t eepromCrc;
 
-uint16_t EEPROMCrc(void) {
+uint16_t settingsCrc(void) {
   uint16_t crc = 0;
-  for (int i = 0; i < EEPROM.length() - 2; i++) {
-    crc = _crc16_update(crc, (uint8_t) EEPROM.read(i));
+  uint8_t * p;
+  p = (uint8_t*)&settings;
+  for (unsigned i = 0; i < sizeof(settings_t) - sizeof(settings.crc); i++, p++) {
+    crc = _crc16_update(crc, *p);
   }
   return crc;
 }
 
-uint16_t EEPROMreadStoredCrc(void) {
-  int len = EEPROM.length();
-  return EEPROM.read(len - 2) << 8 | EEPROM.read(len - 1);
-}
-
-void EEPROMwriteCrc(void) {
-  int len = EEPROM.length();
-  uint16_t crc = EEPROMCrc();
-  EEPROM.write(len - 2, crc >> 8);
-  EEPROM.write(len - 1, crc & 0xff);
-  eepromCrc = EEPROMreadStoredCrc();
-}
-
 void EEPROMsaveSettings(void) {
-  eeprom_write_block(&settings, 0, sizeof(settings));
-  EEPROMwriteCrc();
+  settings.crc = settingsCrc();
+  eeprom_write_block(&settings, 0, sizeof(settings_t));
 }
 
 void initEEPROM(void) {
 
+  eeprom_read_block(&settings, 0, sizeof(settings_t));
+
   //1. Calculate CRC to check if content is valid
+  uint16_t crc = settingsCrc();
 
-  int len = EEPROM.length();
-  uint16_t crc = EEPROMCrc();
-  eepromCrc = EEPROMreadStoredCrc();
-  //Serial.printf("EEPROM length: %d CRC:%x Stored:%x\n", EEPROM.length(), crc, eepromCrc);
-
-  if (crc != eepromCrc || EEPROM.read(0) != EEPROM_STORAGE_VERSION ) {
-    //CRC check was not OK, delete EEPROM and store new CRC
-    Serial.println("Erasing EEPROM");
-    for (int i = 0; i < len - 2; i++) {
-      if (EEPROM.read(i) != 0xff) EEPROM.write(i, 0xff);
-    }
-
+  if ( (crc != settings.crc) || (settings.version != EEPROM_STORAGE_VERSION) ) {
     //Init default values:
-    settings.version = EEPROM_STORAGE_VERSION;
-    settings.lastStation = 0;
-    settings.lastFreq = 0;
-    settings.lastMode = SYNCAM;
-    memset(settings.station, 0xff, sizeof(settings.station));
-    memcpy(settings.station, stations_default, sizeof(stations_default));
+    memcpy(&settings, &settings_default, sizeof(settings_t));
     EEPROMsaveSettings();
+    Serial.println("EEPROM initialized.");
   }
-
-  eeprom_read_block(&settings, 0, sizeof(settings));
 
 #if 1
   Serial.println("EEPROM:");
-  Serial.printf("Settings version: %d\n", settings.version);
+  //Serial.printf("Version: %d\n", settings.version);
+  //Serial.printf("CRC: %x\n", settings.crc);
   Serial.printf("Last Station: %d\n", settings.lastStation);
   Serial.printf("Last Freq: %d\n", settings.lastFreq);
   Serial.printf("Last Mode: %d\n", settings.lastMode);
   int i = 0;
-  while (settings.station[i].mode != 0xff) {
-    Serial.printf("%d. %d\t%s\t%s\n", i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
+  while (i < MAX_EMEMORY) {
+    if (settings.station[i].freq != 0.0)
+      Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
     i++;
   }
 #endif
@@ -438,12 +399,12 @@ void loop() {
 
     if (ch >= 'a' && ch <= 'z') {
       int i = ch - 'a';
-      if (settings.station[i].mode != 0xff) {
+      if (settings.station[i].freq != 0.0) {
         settings.lastStation = i;
         settings.lastFreq = 0;
         freq = settings.station[i].freq;
         mode = settings.station[i].mode;
-        Serial.printf("%d. %d\t%s\t%s\n", i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
+        Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
         tune(freq);
       } else {
         Serial.println("Empty");
