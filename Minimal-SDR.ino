@@ -93,6 +93,9 @@ Adafruit_SSD1306 display(OLED_RESET);
 #define I2S_FREQ_MAX    36000000
 #define I2S0_TCR2_DIV   0
 
+#define PIH             PI / 2
+#define TPI             PI * 2
+
 
 const char sdrname[] = "Mini - SDR";
 int mode             = SYNCAM;
@@ -108,6 +111,13 @@ int16_t minval = 32767;
 int16_t maxval = -minval;
 unsigned long demodulation(void);
 
+const uint32_t FIR_num_taps = 42;
+arm_fir_instance_q15 FIR_I;
+arm_fir_instance_q15 FIR_Q;
+q15_t FIR_I_state [FIR_num_taps + AUDIO_BLOCK_SAMPLES];
+q15_t FIR_Q_state [FIR_num_taps + AUDIO_BLOCK_SAMPLES];
+//int16_t FIR_coeffs[FIR_num_taps] = {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+int16_t FIR_coeffs[FIR_num_taps] = {35,32,-32,-140,-181,-52,195,321,111,-344,-604,-258,560,1085,539,-964,-2124,-1274,2173,6886,10273,10273,6886,2173,-1274,-2124,-964,539,1085,560,-258,-604,-344,111,321,195,-52,-181,-140,-32,32,35};
 //-------------------------------------------------------
 
 uint16_t settingsCrc(void) {
@@ -391,6 +401,10 @@ void setup()   {
   //biquad2_dac.setNotch(3, 3000 * CORR_FACT, 2.0); // eliminates some birdy
   amp_dac.gain(2.0); //amplifier before DAC
 
+ // calc_FIR_coeffs (FIR_coeffs, FIR_num_taps, (float32_t)3500.0, 50, 0, 0.0, (float32_t)SAMPLE_RATE);
+  arm_fir_init_q15(&FIR_I, FIR_num_taps, (q15_t *)FIR_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
+  arm_fir_init_q15(&FIR_Q, FIR_num_taps, (q15_t *)FIR_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
+
   AudioProcessorUsageMaxReset();
   loadLastSettings();
   tune(freq);
@@ -506,8 +520,10 @@ void loop() {
 
 //-------------------------------------------------------
 
-int32_t I_buffer[AUDIO_BLOCK_SAMPLES];
-int32_t Q_buffer[AUDIO_BLOCK_SAMPLES];
+int16_t I_buffer[AUDIO_BLOCK_SAMPLES];
+int16_t Q_buffer[AUDIO_BLOCK_SAMPLES];
+int16_t I_buffer2[AUDIO_BLOCK_SAMPLES];
+int16_t Q_buffer2[AUDIO_BLOCK_SAMPLES];
 
 unsigned long demodulation(void) {
 
@@ -599,6 +615,12 @@ unsigned long demodulation(void) {
   // so a FIR filter with symmetrical coefficients should be used
   // Do not use an IIR filter
 
+//      arm_fir_q15(&FIR_I, (q15_t *)I_buffer, (q15_t *)I_buffer2, AUDIO_BLOCK_SAMPLES);
+//      arm_fir_q15(&FIR_Q, (q15_t *)Q_buffer, (q15_t *)Q_buffer2, AUDIO_BLOCK_SAMPLES);
+      arm_fir_fast_q15(&FIR_I, (q15_t *)I_buffer, (q15_t *)I_buffer2, AUDIO_BLOCK_SAMPLES);
+      arm_fir_fast_q15(&FIR_Q, (q15_t *)Q_buffer, (q15_t *)Q_buffer2, AUDIO_BLOCK_SAMPLES);
+      arm_copy_q15((q15_t *)I_buffer2, (q15_t *)I_buffer, AUDIO_BLOCK_SAMPLES);
+      arm_copy_q15((q15_t *)Q_buffer2, (q15_t *)Q_buffer, AUDIO_BLOCK_SAMPLES);
   /*
     - demodulation
     - write data to output-qeue
@@ -686,7 +708,7 @@ unsigned long demodulation(void) {
 
           // BEWARE: with a Teensy 3.2 in fixed point, this will really take a lot of time to calculate!
           // use atan2 in that case
-          det = atan2f(corr[1], corr[0]);
+          det = atan2(corr[1], corr[0]);
 
           del_out = fil_out;
           omega2 = omega2 + g2 * det;
@@ -782,3 +804,117 @@ unsigned long demodulation(void) {
 
   return micros() - time_start;
 }
+
+void calc_FIR_coeffs (int16_t* coeffs_I, int numCoeffs, float32_t fc, float32_t Astop, int type, float dfc, float Fsamprate)
+// pointer to coefficients variable, no. of coefficients to calculate, frequency where it happens, stopband attenuation in dB,
+// filter type, half-filter bandwidth (only for bandpass and notch)
+{ // modified by WMXZ and DD4WH after
+  // Wheatley, M. (2011): CuteSDR Technical Manual. www.metronix.com, pages 118 - 120, FIR with Kaiser-Bessel Window
+  // assess required number of coefficients by
+  //     numCoeffs = (Astop - 8.0) / (2.285 * TPI * normFtrans);
+  // selecting high-pass, numCoeffs is forced to an even number for better frequency response
+
+  int ii, jj;
+  float32_t Beta;
+  float32_t izb;
+  float fcf = fc;
+  int nc = numCoeffs;
+  fc = fc / Fsamprate;
+  dfc = dfc / Fsamprate;
+  // calculate Kaiser-Bessel window shape factor beta from stop-band attenuation
+  if (Astop < 20.96)
+    Beta = 0.0;
+  else if (Astop >= 50.0)
+    Beta = 0.1102 * (Astop - 8.71);
+  else
+    Beta = 0.5842 * powf((Astop - 20.96), 0.4) + 0.07886 * (Astop - 20.96);
+
+  izb = Izero (Beta);
+  if (type == 0) // low pass filter
+    //     {  fcf = fc;
+  { fcf = fc * 2.0;
+    nc =  numCoeffs;
+  }
+  else if (type == 1) // high-pass filter
+  { fcf = -fc;
+    nc =  2 * (numCoeffs / 2);
+  }
+  else if ((type == 2) || (type == 3)) // band-pass filter
+  {
+    fcf = dfc;
+    nc =  2 * (numCoeffs / 2); // maybe not needed
+  }
+  else if (type == 4) // Hilbert transform
+  {
+    nc =  2 * (numCoeffs / 2);
+    // clear coefficients
+    for (ii = 0; ii < 2 * (nc - 1); ii++) coeffs_I[ii] = 0;
+    // set real delay
+    coeffs_I[nc] = 1;
+
+    // set imaginary Hilbert coefficients
+    for (ii = 1; ii < (nc + 1); ii += 2)
+    {
+      if (2 * ii == nc) continue;
+      float x = (float)(2 * ii - nc) / (float)nc;
+      float w = Izero(Beta * sqrtf(1.0f - x * x)) / izb; // Kaiser window
+      coeffs_I[2 * ii + 1] = 1.0f / (PIH * (float)(ii - nc / 2)) * w ;
+    }
+    return;
+  }
+  float32_t test;
+  for (ii = - nc, jj = 0; ii < nc; ii += 2, jj++)
+  {
+    float x = (float)ii / (float)nc;
+    float w = Izero(Beta * sqrtf(1.0f - x * x)) / izb; // Kaiser window
+    coeffs_I[jj] = fcf * m_sinc(ii, fcf) * w;
+
+  }
+
+  if (type == 1)
+  {
+    coeffs_I[nc / 2] += 1;
+  }
+  else if (type == 2)
+  {
+    for (jj = 0; jj < nc + 1; jj++) coeffs_I[jj] *= 2.0f * cosf(PIH * (2 * jj - nc) * fc);
+  }
+  else if (type == 3)
+  {
+    for (jj = 0; jj < nc + 1; jj++) coeffs_I[jj] *= -2.0f * cosf(PIH * (2 * jj - nc) * fc);
+    coeffs_I[nc / 2] += 1;
+  }
+
+} // END calc_FIR_coeffs
+
+float m_sinc(int m, float fc)
+{ // fc is f_cut/(Fsamp/2)
+  // m is between -M and M step 2
+  //
+  float x = m * PIH;
+  if (m == 0)
+    return 1.0f;
+  else
+    return sinf(x * fc) / (fc * x);
+}
+
+float32_t Izero (float32_t x)
+{
+  float32_t x2 = x / 2.0;
+  float32_t summe = 1.0;
+  float32_t ds = 1.0;
+  float32_t di = 1.0;
+  float32_t errorlimit = 1e-9;
+  float32_t tmp;
+  do
+  {
+    tmp = x2 / di;
+    tmp *= tmp;
+    ds *= tmp;
+    summe += ds;
+    di += 1.0;
+  }   while (ds >= errorlimit * summe);
+  return (summe);
+} // END Izero
+
+
