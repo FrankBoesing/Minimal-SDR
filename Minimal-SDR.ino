@@ -85,14 +85,17 @@ Adafruit_SSD1306 display(OLED_RESET);
 
 const char sdrname[] = "Mini - SDR";
 int mode             = SYNCAM;
-uint8_t ANR_on       =    0;         // automatic notch filter ON/OFF
+uint8_t ANR_on       = 0;         // automatic notch filter ON/OFF
+int input            = 0;
 float freq;
+settings_t settings;
+
+unsigned long time_needed     = 0;
+unsigned long time_needed_max = 0;
+
+unsigned long demodulation(void);
 
 //-------------------------------------------------------
-
-//#include <EEPROM.h>
-
-settings_t settings;
 
 uint16_t settingsCrc(void) {
   uint16_t crc = 0;
@@ -191,6 +194,8 @@ void showFreq(float freq, int mode)
 #endif
 }
 
+//-------------------------------------------------------
+
 #define PDB_CONFIG (PDB_SC_TRGSEL(15) | PDB_SC_PDBEN | PDB_SC_CONT | PDB_SC_PDBIE | PDB_SC_DMAEN)
 
 float setPDB_freq(float fsamp)
@@ -202,6 +207,8 @@ float setPDB_freq(float fsamp)
   PDB0_SC = PDB_CONFIG | PDB_SC_SWTRIG;
   return (F_BUS) / mod;
 }
+
+//-------------------------------------------------------
 
 float setI2S_freq(float fsamp)
 {
@@ -263,6 +270,8 @@ float setI2S_freq(float fsamp)
   return rfreq;
 }
 
+//-------------------------------------------------------
+
 void initI2S(void)
 {
   SIM_SCGC6 |= SIM_SCGC6_I2S;
@@ -286,6 +295,8 @@ void initI2S(void)
 
 }
 
+//-------------------------------------------------------
+
 void tune(float freq) {
   float freq_actual;
   float freq_diff;
@@ -293,6 +304,7 @@ void tune(float freq) {
   float pdb_freq_actual;
 
   AudioNoInterrupts();
+  PDB0_SC = 0;
 
   // BCLK:
   freq_actual = setI2S_freq(freq + _IF);
@@ -311,20 +323,23 @@ void tune(float freq) {
   Serial.println();
 #endif
 
+  AudioProcessorUsageMaxReset();
+  time_needed_max = 0;
   AudioInterrupts();
 }
 
-
+//-------------------------------------------------------
 
 void setup()   {
   AudioMemory(AUDIOMEMORY);
+  PDB0_SC = 0; //Stop PDB
+
   Serial.println(sdrname);
   Serial.printf("F_CPU: %dMHz F_BUS: %dMHz\n", (int) (F_CPU / 1000000), (int) (F_BUS / 1000000));
   Serial.printf("IF: %dHz Samplerate: %dHz\n", _IF, _IF * 4 );
   Serial.println();
 
   initEEPROM();
-
   initI2S();
 
 #if OLED
@@ -344,9 +359,6 @@ void setup()   {
   display.display();
 #endif
 
-  loadLastSettings();
-  tune(freq);
-
   amp_adc.gain(1.5); //amplifier after ADC (is this needed?)
 
   // Linkwitz-Riley: gain = {0.54, 1.3, 0.54, 1.3}
@@ -364,9 +376,12 @@ void setup()   {
   amp_dac.gain(2.0); //amplifier before DAC
 
   AudioProcessorUsageMaxReset();
+  loadLastSettings();
+  tune(freq);
   queue_adc.begin();
 }
 
+//-------------------------------------------------------
 
 void printAudioLibStatistics(void) {
 #if 1
@@ -380,98 +395,106 @@ void printAudioLibStatistics(void) {
     audiolibLastStatistic = t;
     Serial.println();
     Serial.printf("Runtime: %d seconds\n", (t - timestart) / 1000);
-    Serial.printf("AudioMemoryUsageMax: %d blocks\n", AudioMemoryUsageMax());
-    Serial.printf("AudioProcessorUsageMax: %.2f\n", AudioProcessorUsageMax());
+    Serial.printf("AudioMemoryUsageMax: %d Blocks\n", AudioMemoryUsageMax());
+    Serial.printf("AudioProcessorUsageMax: %.2f%%\n", AudioProcessorUsageMax());
+    Serial.printf("Demodulation t-max: %d%cs\n", time_needed_max, 'µ');
   }
 
 #endif
 }
 
-int32_t input = 0;
+//-------------------------------------------------------
 
-void loop() {
-  asm ("wfi");
-  demodulation(mode);
-  printAudioLibStatistics();
+void serialUI(void) {
+  if (!Serial.available()) return;
 
-  if (Serial.available()) {
-    char ch = Serial.read();
+  char ch = Serial.read();
 
-    if (ch >= 'a' && ch <= 'z') {
-      int i = ch - 'a';
-      if (settings.station[i].freq != 0.0) {
-        settings.lastStation = i;
-        settings.lastFreq = 0;
-        freq = settings.station[i].freq;
-        mode = settings.station[i].mode;
-        Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
-        tune(freq);
-      } else {
-        Serial.println("Empty");
-      }
-    }
-    else if (ch == 'L') {
-      mode = LSB;
-      settings.lastMode = mode;
+  if (ch >= 'a' && ch <= 'z') {
+    int i = ch - 'a';
+    if (settings.station[i].freq != 0.0) {
+      settings.lastStation = i;
+      settings.lastFreq = 0;
+      freq = settings.station[i].freq;
+      mode = settings.station[i].mode;
+      Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
       tune(freq);
+    } else {
+      Serial.println("Empty.");
     }
-    else if (ch == 'U') {
-      mode = USB;
-      settings.lastMode = mode;
-      tune(freq);
-    }
-    else if (ch == 'A') {
-      mode = AM;
-      settings.lastMode = mode;
-      tune(freq);
-    }
-    else if (ch == 'S') {
-      mode = SYNCAM;
-      settings.lastMode = mode;
-      tune(freq);
-    }
-    else if (ch == 'N') {
-      if (ANR_on)
-      {
-        ANR_on = 0;
-        Serial.println("Auto-Notch OFF");
-        tune(freq);
-      }
-      else
-      {
-        ANR_on = 1;
-        Serial.println("Auto-Notch ON");
-        tune(freq);
-      }
-    }
-    else if (ch == '!') {
-      EEPROMsaveSettings();
-      Serial.println("Settings saved");
-    }
-    else if (ch >= '0' && ch <= '9') {
-      input = input * 10 + (ch - '0');
-      //Serial.print("Input = "); Serial.println(input);
-    } else if (ch == '\r') {
-      if (input > 0) {
-        freq = input;
-        settings.lastFreq = input;
-        input = 0;
-        tune(freq);
-      }
-    }
-
   }
-
+  else if (ch == 'L') {
+    mode = LSB;
+    settings.lastMode = mode;
+    tune(freq);
+  }
+  else if (ch == 'U') {
+    mode = USB;
+    settings.lastMode = mode;
+    tune(freq);
+  }
+  else if (ch == 'A') {
+    mode = AM;
+    settings.lastMode = mode;
+    tune(freq);
+  }
+  else if (ch == 'S') {
+    mode = SYNCAM;
+    settings.lastMode = mode;
+    tune(freq);
+  }
+  else if (ch == 'N') {
+    if (ANR_on)
+    {
+      ANR_on = 0;
+      Serial.println("Auto-Notch OFF");
+      tune(freq);
+    }
+    else
+    {
+      ANR_on = 1;
+      Serial.println("Auto-Notch ON");
+      tune(freq);
+    }
+  }
+  else if (ch == '!') {
+    EEPROMsaveSettings();
+    Serial.println("Settings saved");
+  }
+  else if (ch >= '0' && ch <= '9') {
+    input = input * 10 + (ch - '0');
+    //Serial.print("Input = "); Serial.println(input);
+  } else if (ch == '\r') {
+    if (input > 0) {
+      freq = input;
+      settings.lastFreq = input;
+      input = 0;
+      tune(freq);
+    }
+  }
 }
 
+//-------------------------------------------------------
 
-float32_t I_buffer[AUDIO_BLOCK_SAMPLES];
-float32_t Q_buffer[AUDIO_BLOCK_SAMPLES];
+void loop() {
+  serialUI();
+  printAudioLibStatistics();
+  //asm ("wfi");
+  time_needed = demodulation();
+  if (time_needed > time_needed_max) time_needed_max = time_needed;
+}
 
-void demodulation(int mode) {
+//-------------------------------------------------------
 
-  if ( queue_adc.available() < 1 ) return;
-  if ( !queue_dac.available() ) return;
+int I_buffer[AUDIO_BLOCK_SAMPLES];
+int Q_buffer[AUDIO_BLOCK_SAMPLES];
+
+unsigned long demodulation(void) {
+
+  if ( queue_adc.available() < 1 ) return 0;
+  if ( !queue_dac.available() ) return 0;
+
+  unsigned long time_start = micros();
 
   /*
       Read data from input queue
@@ -679,4 +702,5 @@ void demodulation(int mode) {
   }
   queue_dac.playBuffer();
 
+  return micros() - time_start;
 }
