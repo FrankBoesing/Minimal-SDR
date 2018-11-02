@@ -5,6 +5,7 @@
 
   GPL V3
 
+  Teensy 3.6
   =================
   ADC : Pin A2 / 16
   DAC : Pin A21 DAC0
@@ -12,6 +13,17 @@
   I2C-SCL : PIN 19
   I2C-SDA : PIN 18
   =================
+
+  Teensy 3.2
+  =================
+  ADC : Pin A2 / 16
+  DAC : Pin A14 DAC
+  BCLK: Pin 9
+  MCLK: Pin 11
+  I2C-SCL : PIN 19
+  I2C-SDA : PIN 18
+  =================
+
 
   Hardware:
     MCP2036
