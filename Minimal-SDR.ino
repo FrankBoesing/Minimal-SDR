@@ -14,20 +14,20 @@
   =================
 
   Hardware:
-  * MCP2036
-   
+    MCP2036
+
   How does it work:
-  * Teensy produces LO RX frequency on BCLK (pin 9) or MCLK (pin 11) 
-  * MCP2036 mixes LO with RF coming from antenna --> direct conversion
-  * MCP amplifies and lowpass filters the IF signal 
-  * Teensy ADC samples incoming IF signal with sample rate == IF * 4
-  * Software Oscillators cos & sin are used to produce I & Q signals and simultaneously translate the I & Q signals to audio baseband
-  * I & Q are filtered by linear phase FIR [tbd]
-  * Demodulation --> SSB, AM or synchronous AM
-  * Decoding of time signals or other digital modes [tbd]
-  * auto-notch filter to eliminate birdies
-  * IIR biquad filter to shape baseband audio
-  * Audio output through Teensy DAC
+    Teensy produces LO RX frequency on BCLK (pin 9) or MCLK (pin 11)
+    MCP2036 mixes LO with RF coming from antenna --> direct conversion
+    MCP amplifies and lowpass filters the IF signal
+    Teensy ADC samples incoming IF signal with sample rate == IF * 4
+    Software Oscillators cos & sin are used to produce I & Q signals and simultaneously translate the I & Q signals to audio baseband
+    I & Q are filtered by linear phase FIR [tbd]
+    Demodulation --> SSB, AM or synchronous AM
+    Decoding of time signals or other digital modes [tbd]
+    auto-notch filter to eliminate birdies
+    IIR biquad filter to shape baseband audio
+    Audio output through Teensy DAC
 
 *********************************************************************/
 
@@ -74,7 +74,6 @@ Adafruit_SSD1306 display(OLED_RESET);
 
 #define AUDIOMEMORY     20
 
-uint8_t ANR_on      =    0;            // automatic notch filter ON/OFF 
 #define _IF             6000        // intermediate frequency
 #define SAMPLE_RATE     (_IF * 4)   // new Audio-Library sample rate
 #define CORR_FACT       (AUDIO_SAMPLE_RATE_EXACT / SAMPLE_RATE) // Audio-Library correction factor
@@ -88,8 +87,7 @@ const char sdrname[] = "Mini - SDR";
 
 float freq;
 int mode = SYNCAM;
-//int mode = LSB;
-
+uint8_t ANR_on      =    0;         // automatic notch filter ON/OFF
 
 //-------------------------------------------------------
 
@@ -214,7 +212,7 @@ void showFreq(float freq, int mode)
   display.setTextSize(1);
   display.setCursor(0, 20 + 4 * 8);
   display.fillRect(0, 20 + 4 * 8, 4 * 8, 8, 0);
-  if(ANR_on == 1) display.println("Notch");
+  if (ANR_on == 1) display.println("Notch");
 
   display.setTextSize(size);
   display.fillRect(x, y, display.width(), size * 8, 0);
@@ -451,7 +449,7 @@ void loop() {
         Serial.println("Empty");
       }
     }
-    else if (ch == 'L') {      
+    else if (ch == 'L') {
       mode = LSB;
       settings.lastMode = mode;
       tune(freq);
@@ -472,13 +470,13 @@ void loop() {
       tune(freq);
     }
     else if (ch == 'N') {
-      if(ANR_on) 
-      { 
+      if (ANR_on)
+      {
         ANR_on = 0;
         Serial.println("Auto-Notch OFF");
         tune(freq);
       }
-      else 
+      else
       {
         ANR_on = 1;
         Serial.println("Auto-Notch ON");
@@ -645,81 +643,79 @@ void demodulation(int mode) {
       //-------------------------------------------------------
   }
 
-// LMS automatic notch filter to eliminate annoying birdies
- 
-// Automatic noise reduction
-// Variable-leak LMS algorithm
-// taken from (c) Warren Pratts wdsp library 2016
-// GPLv3 licensed
+  // LMS automatic notch filter to eliminate annoying birdies
+
+  // Automatic noise reduction
+  // Variable-leak LMS algorithm
+  // taken from (c) Warren Pratts wdsp library 2016
+  // GPLv3 licensed
 #define ANR_DLINE_SIZE 512 //256 //512 //2048 funktioniert nicht, 128 & 256 OK                 // dline_size
-const int ANR_taps =     64; //64;                       // taps
-const int ANR_delay =    16; //16;                       // delay
-const int ANR_dline_size = ANR_DLINE_SIZE;
-const int ANR_buff_size = AUDIO_BLOCK_SAMPLES;
-static int ANR_position = 0;
-const float32_t ANR_two_mu =   0.001;   //0.0001                  // two_mu --> "gain"
-const float32_t ANR_gamma =    0.1;                      // gamma --> "leakage"
-static float32_t ANR_lidx =     120.0;                      // lidx
-const float32_t ANR_lidx_min = 0.0;                      // lidx_min
-const float32_t ANR_lidx_max = 200.0;                      // lidx_max
-static float32_t ANR_ngamma =   0.001;                      // ngamma
-const float32_t ANR_den_mult = 6.25e-10;                   // den_mult
-const float32_t ANR_lincr =    1.0;                      // lincr
-const float32_t ANR_ldecr =    3.0;                     // ldecr
-static int ANR_mask = ANR_dline_size - 1;
-static int ANR_in_idx = 0;
-static float32_t ANR_d [ANR_DLINE_SIZE];
-static float32_t ANR_w [ANR_DLINE_SIZE];
+  static const int ANR_taps =     64; //64;                       // taps
+  static const int ANR_delay =    16; //16;                       // delay
+  static const int ANR_dline_size = ANR_DLINE_SIZE;
+  static const int ANR_buff_size = AUDIO_BLOCK_SAMPLES;
+  //static int ANR_position = 0;
+  static const float32_t ANR_two_mu =   0.001;   //0.0001                  // two_mu --> "gain"
+  static const float32_t ANR_gamma =    0.1;                      // gamma --> "leakage"
+  static float32_t ANR_lidx =     120.0;                      // lidx
+  static const float32_t ANR_lidx_min = 0.0;                      // lidx_min
+  static const float32_t ANR_lidx_max = 200.0;                      // lidx_max
+  static float32_t ANR_ngamma =   0.001;                      // ngamma
+  static const float32_t ANR_den_mult = 6.25e-10;                   // den_mult
+  static const float32_t ANR_lincr =    1.0;                      // lincr
+  static const float32_t ANR_ldecr =    3.0;                     // ldecr
+  static int ANR_mask = ANR_dline_size - 1;
+  static int ANR_in_idx = 0;
+  static float32_t ANR_d [ANR_DLINE_SIZE];
+  static float32_t ANR_w [ANR_DLINE_SIZE];
 
-if(ANR_on == 1) {
-// variable leak LMS algorithm for automatic notch or noise reduction
-// (c) Warren Pratt wdsp library 2016
-  int i, j, idx;
-  float32_t c0, c1;
-  float32_t y, error, sigma, inv_sigp;
-  float32_t nel, nev;
+  if (ANR_on == 1) {
+    // variable leak LMS algorithm for automatic notch or noise reduction
+    // (c) Warren Pratt wdsp library 2016
+    int i, j, idx;
+    float32_t c0, c1;
+    float32_t y, error, sigma, inv_sigp;
+    float32_t nel, nev;
 
-  for (i = 0; i < ANR_buff_size; i++)
-  {
-    ANR_d[ANR_in_idx] = p_dac[i];
-
-    y = 0;
-    sigma = 0;
-
-    for (j = 0; j < ANR_taps; j++)
+    for (i = 0; i < ANR_buff_size; i++)
     {
-      idx = (ANR_in_idx + j + ANR_delay) & ANR_mask;
-      y += ANR_w[j] * ANR_d[idx];
-      sigma += ANR_d[idx] * ANR_d[idx];
+      ANR_d[ANR_in_idx] = p_dac[i];
+
+      y = 0;
+      sigma = 0;
+
+      for (j = 0; j < ANR_taps; j++)
+      {
+        idx = (ANR_in_idx + j + ANR_delay) & ANR_mask;
+        y += ANR_w[j] * ANR_d[idx];
+        sigma += ANR_d[idx] * ANR_d[idx];
+      }
+      inv_sigp = 1.0 / (sigma + 1e-10);
+      error = ANR_d[ANR_in_idx] - y;
+
+      p_dac[i] = error;
+      //if (ANR_notch) float_buffer_R[i] = error; // NOTCH FILTER
+      //else  float_buffer_R[i] = y; // NOISE REDUCTION
+
+      if ((nel = error * (1.0 - ANR_two_mu * sigma * inv_sigp)) < 0.0) nel = -nel;
+      if ((nev = ANR_d[ANR_in_idx] - (1.0 - ANR_two_mu * ANR_ngamma) * y - ANR_two_mu * error * sigma * inv_sigp) < 0.0) nev = -nev;
+      if (nev < nel) {
+        if ((ANR_lidx += ANR_lincr) > ANR_lidx_max) ANR_lidx = ANR_lidx_max;
+        else if ((ANR_lidx -= ANR_ldecr) < ANR_lidx_min) ANR_lidx = ANR_lidx_min;
+      }
+      ANR_ngamma = ANR_gamma * (ANR_lidx * ANR_lidx) * (ANR_lidx * ANR_lidx) * ANR_den_mult;
+
+      c0 = 1.0 - ANR_two_mu * ANR_ngamma;
+      c1 = ANR_two_mu * error * inv_sigp;
+
+      for (j = 0; j < ANR_taps; j++)
+      {
+        idx = (ANR_in_idx + j + ANR_delay) & ANR_mask;
+        ANR_w[j] = c0 * ANR_w[j] + c1 * ANR_d[idx];
+      }
+      ANR_in_idx = (ANR_in_idx + ANR_mask) & ANR_mask;
     }
-    inv_sigp = 1.0 / (sigma + 1e-10);
-    error = ANR_d[ANR_in_idx] - y;
-
-    p_dac[i] = error;
-    //if (ANR_notch) float_buffer_R[i] = error; // NOTCH FILTER
-    //else  float_buffer_R[i] = y; // NOISE REDUCTION
-
-    if ((nel = error * (1.0 - ANR_two_mu * sigma * inv_sigp)) < 0.0) nel = -nel;
-    if ((nev = ANR_d[ANR_in_idx] - (1.0 - ANR_two_mu * ANR_ngamma) * y - ANR_two_mu * error * sigma * inv_sigp) < 0.0) nev = -nev;
-    if (nev < nel)
-      if ((ANR_lidx += ANR_lincr) > ANR_lidx_max) ANR_lidx = ANR_lidx_max;
-      else if ((ANR_lidx -= ANR_ldecr) < ANR_lidx_min) ANR_lidx = ANR_lidx_min;
-    ANR_ngamma = ANR_gamma * (ANR_lidx * ANR_lidx) * (ANR_lidx * ANR_lidx) * ANR_den_mult;
-
-    c0 = 1.0 - ANR_two_mu * ANR_ngamma;
-    c1 = ANR_two_mu * error * inv_sigp;
-
-    for (j = 0; j < ANR_taps; j++)
-    {
-      idx = (ANR_in_idx + j + ANR_delay) & ANR_mask;
-      ANR_w[j] = c0 * ANR_w[j] + c1 * ANR_d[idx];
-    }
-    ANR_in_idx = (ANR_in_idx + ANR_mask) & ANR_mask;
   }
-}
   queue_dac.playBuffer();
 
 }
-
-
-
