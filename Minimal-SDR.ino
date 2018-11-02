@@ -111,13 +111,17 @@ int16_t minval = 32767;
 int16_t maxval = -minval;
 unsigned long demodulation(void);
 
-const uint32_t FIR_num_taps = 42;
+uint16_t filter_bandwidth = 3500;
+const uint32_t FIR_num_taps = 66;
 arm_fir_instance_q15 FIR_I;
 arm_fir_instance_q15 FIR_Q;
 q15_t FIR_I_state [FIR_num_taps + AUDIO_BLOCK_SAMPLES];
 q15_t FIR_Q_state [FIR_num_taps + AUDIO_BLOCK_SAMPLES];
-//int16_t FIR_coeffs[FIR_num_taps] = {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-int16_t FIR_coeffs[FIR_num_taps] = {35,32,-32,-140,-181,-52,195,321,111,-344,-604,-258,560,1085,539,-964,-2124,-1274,2173,6886,10273,10273,6886,2173,-1274,-2124,-964,539,1085,560,-258,-604,-344,111,321,195,-52,-181,-140,-32,32,35};
+int16_t FIR_coeffs[FIR_num_taps];
+// 66 taps, cutoff = 4kHz, 24ksps sample rate
+//const int16_t FIR_coeffs[FIR_num_taps] = {-2,8,22,24,-2,-39,-44,10,77,72,-33,-141,-106,82,234,135,-177,-367,-146,337,544,113,-610,-788,4,1088,1155,-327,-2125,-1949,1486,6886,10973,10973,6886,1486,-1949,-2125,-327,1155,1088,4,-788,-610,113,544,337,-146,-367,-177,135,234,82,-106,-141,-33,72,77,10,-44,-39,-2,24,22,8,-2};
+
+
 //-------------------------------------------------------
 
 uint16_t settingsCrc(void) {
@@ -385,23 +389,26 @@ void setup()   {
   display.display();
 #endif
 
-  //amp_adc.gain(1.5); //amplifier after ADC (is this needed?)
+  amp_adc.gain(0.7); //amplifier after ADC (is this needed?)
 
   // Linkwitz-Riley: gain = {0.54, 1.3, 0.54, 1.3}
   // notch is very good, even with small Q
   // we have to restrict our audio bandwidth to at least 0.5 * IF,
-  const float cutoff_freq = _IF * 0.5 * CORR_FACT;
+//  const float cutoff_freq = _IF * 0.5 * CORR_FACT;
+  const float cutoff_freq = _IF * 0.9 * CORR_FACT;
+
   biquad1_dac.setLowpass(0,  cutoff_freq, 0.54);
-  biquad1_dac.setLowpass(1, cutoff_freq, 1.3);
-  biquad1_dac.setLowpass(2, cutoff_freq, 0.54);
-  biquad1_dac.setLowpass(3, cutoff_freq, 1.3);
-  biquad2_dac.setLowpass(0, cutoff_freq, 0.54);
-  biquad2_dac.setLowpass(1, cutoff_freq, 1.3);
-  biquad2_dac.setLowpass(2, cutoff_freq, 0.54);
-  //biquad2_dac.setNotch(3, 3000 * CORR_FACT, 2.0); // eliminates some birdy
+  //biquad1_dac.setLowpass(1, cutoff_freq, 1.3);
+  //biquad1_dac.setLowpass(2, cutoff_freq, 0.54);
+  //biquad1_dac.setLowpass(3, cutoff_freq, 1.3);
+  //biquad2_dac.setLowpass(0, cutoff_freq, 0.54);
+  //biquad2_dac.setLowpass(1, cutoff_freq, 1.3);
+  //biquad2_dac.setLowpass(2, cutoff_freq, 0.54);
+  biquad2_dac.setNotch(0, SAMPLE_RATE / 8 * CORR_FACT, 15.0); // eliminates some birdy
+
   amp_dac.gain(2.0); //amplifier before DAC
 
- // calc_FIR_coeffs (FIR_coeffs, FIR_num_taps, (float32_t)3500.0, 50, 0, 0.0, (float32_t)SAMPLE_RATE);
+  calc_FIR_coeffs (FIR_coeffs, FIR_num_taps, (float32_t)filter_bandwidth, 70, 0, 0.0, (float32_t)SAMPLE_RATE);
   arm_fir_init_q15(&FIR_I, FIR_num_taps, (q15_t *)FIR_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
   arm_fir_init_q15(&FIR_Q, FIR_num_taps, (q15_t *)FIR_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
 
@@ -805,7 +812,7 @@ unsigned long demodulation(void) {
   return micros() - time_start;
 }
 
-void calc_FIR_coeffs (int16_t* coeffs_I, int numCoeffs, float32_t fc, float32_t Astop, int type, float dfc, float Fsamprate)
+void calc_FIR_coeffs (int16_t* coeffs, int numCoeffs, float32_t fc, float32_t Astop, int type, float dfc, float Fsamprate)
 // pointer to coefficients variable, no. of coefficients to calculate, frequency where it happens, stopband attenuation in dB,
 // filter type, half-filter bandwidth (only for bandpass and notch)
 { // modified by WMXZ and DD4WH after
@@ -848,9 +855,9 @@ void calc_FIR_coeffs (int16_t* coeffs_I, int numCoeffs, float32_t fc, float32_t 
   {
     nc =  2 * (numCoeffs / 2);
     // clear coefficients
-    for (ii = 0; ii < 2 * (nc - 1); ii++) coeffs_I[ii] = 0;
+    for (ii = 0; ii < 2 * (nc - 1); ii++) coeffs[ii] = 0;
     // set real delay
-    coeffs_I[nc] = 1;
+    coeffs[nc] = 1;
 
     // set imaginary Hilbert coefficients
     for (ii = 1; ii < (nc + 1); ii += 2)
@@ -858,7 +865,7 @@ void calc_FIR_coeffs (int16_t* coeffs_I, int numCoeffs, float32_t fc, float32_t 
       if (2 * ii == nc) continue;
       float x = (float)(2 * ii - nc) / (float)nc;
       float w = Izero(Beta * sqrtf(1.0f - x * x)) / izb; // Kaiser window
-      coeffs_I[2 * ii + 1] = 1.0f / (PIH * (float)(ii - nc / 2)) * w ;
+      coeffs[2 * ii + 1] = 1.0f / (PIH * (float)(ii - nc / 2)) * w ;
     }
     return;
   }
@@ -867,22 +874,22 @@ void calc_FIR_coeffs (int16_t* coeffs_I, int numCoeffs, float32_t fc, float32_t 
   {
     float x = (float)ii / (float)nc;
     float w = Izero(Beta * sqrtf(1.0f - x * x)) / izb; // Kaiser window
-    coeffs_I[jj] = fcf * m_sinc(ii, fcf) * w;
+    coeffs[jj] = fcf * m_sinc(ii, fcf) * w * 32767;
 
   }
 
   if (type == 1)
   {
-    coeffs_I[nc / 2] += 1;
+    coeffs[nc / 2] += 1;
   }
   else if (type == 2)
   {
-    for (jj = 0; jj < nc + 1; jj++) coeffs_I[jj] *= 2.0f * cosf(PIH * (2 * jj - nc) * fc);
+    for (jj = 0; jj < nc + 1; jj++) coeffs[jj] *= 2.0f * cosf(PIH * (2 * jj - nc) * fc);
   }
   else if (type == 3)
   {
-    for (jj = 0; jj < nc + 1; jj++) coeffs_I[jj] *= -2.0f * cosf(PIH * (2 * jj - nc) * fc);
-    coeffs_I[nc / 2] += 1;
+    for (jj = 0; jj < nc + 1; jj++) coeffs[jj] *= -2.0f * cosf(PIH * (2 * jj - nc) * fc);
+    coeffs[nc / 2] += 1;
   }
 
 } // END calc_FIR_coeffs
