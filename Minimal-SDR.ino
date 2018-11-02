@@ -699,8 +699,8 @@ unsigned long demodulation(void) {
   // Variable-leak LMS algorithm
   // taken from (c) Warren Pratts wdsp library 2016
   // GPLv3 licensed
-#define ANR_DLINE_SIZE 256 //256 //512 //2048 funktioniert nicht, 128 & 256 OK                 // dline_size
-  static const int ANR_taps =     32; //64;                       // taps
+#define ANR_DLINE_SIZE 512 //256 //512 //2048 funktioniert nicht, 128 & 256 OK                 // dline_size
+  static const int ANR_taps =     64; //64;                       // taps
   static const int ANR_delay =    16; //16;                       // delay
   static const int ANR_dline_size = ANR_DLINE_SIZE;
   static const int ANR_buff_size = AUDIO_BLOCK_SAMPLES;
