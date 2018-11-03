@@ -42,6 +42,11 @@
     Audio output through Teensy DAC
 
 *********************************************************************/
+
+//ToDo:
+//Hilbert-Coeffs when demodulating SSB
+
+/********************************************************************/
 #include "stations.h"
 #include <util/crc16.h>
 
@@ -98,7 +103,8 @@ Adafruit_SSD1306 display(OLED_RESET);
 
 
 const char sdrname[] = "Mini - SDR";
-int mode             = SYNCAM;
+//int mode             = SYNCAM;
+int mode             = AM;
 uint8_t ANR_on       = 0;         // automatic notch filter ON/OFF
 uint8_t AGC_on       = 1;         // automatic gain control ON/OFF
 float AGC_val        = 0.25;       // agc actual value
@@ -112,14 +118,21 @@ unsigned long time_needed_max = 0;
 unsigned long demodulation(void);
 
 uint16_t filter_bandwidth = 3500;
-const uint32_t FIR_num_taps = 66;
+const uint32_t FIR_AM_num_taps = 66;
+const uint32_t FIR_SSB_num_taps = 86;
 arm_fir_instance_q15 FIR_I;
 arm_fir_instance_q15 FIR_Q;
-q15_t FIR_I_state [FIR_num_taps + AUDIO_BLOCK_SAMPLES];
-q15_t FIR_Q_state [FIR_num_taps + AUDIO_BLOCK_SAMPLES];
-int16_t FIR_coeffs[FIR_num_taps];
-// 66 taps, cutoff = 4kHz, 24ksps sample rate
-//const int16_t FIR_coeffs[FIR_num_taps] = {-2,8,22,24,-2,-39,-44,10,77,72,-33,-141,-106,82,234,135,-177,-367,-146,337,544,113,-610,-788,4,1088,1155,-327,-2125,-1949,1486,6886,10973,10973,6886,1486,-1949,-2125,-327,1155,1088,4,-788,-610,113,544,337,-146,-367,-177,135,234,82,-106,-141,-33,72,77,10,-44,-39,-2,24,22,8,-2};
+q15_t FIR_I_state [FIR_SSB_num_taps + AUDIO_BLOCK_SAMPLES];
+q15_t FIR_Q_state [FIR_SSB_num_taps + AUDIO_BLOCK_SAMPLES];
+//int16_t FIR_AM_coeffs[FIR_AM_num_taps];
+//int16_t FIR_I_coeffs[FIR_num_taps];
+//int16_t FIR_Q_coeffs[FIR_num_taps];
+// +45°, 86 taps, Fc=1.33kHz, BW=1.92kHz, Kaiser beta = 1.8, raised cosine 0.88
+const int16_t FIR_I_coeffs[FIR_SSB_num_taps] = {-3,-16,-33,-52,-63,-63,-48,-25,-5,-4,-30,-85,-157,-221,-253,-233,-163,-66,17,41,-20,-164,-349,-506,-561,-468,-231,83,365,496,395,65,-392,-791,-915,-586,264,1549,3035,4388,5262,5400,4710,3298,1448,-458,-2043,-3030,-3312,-2964,-2203,-1314,-559,-108,-8,-185,-496,-780,-922,-878,-676,-399,-141,25,72,16,-93,-196,-250,-237,-167,-72,15,68,80,57,18,-17,-36,-35,-19,3,21,29,28,20};
+// +45°, 86 taps, Fc=1.33kHz, BW=1.92kHz, Kaiser beta = 1.8, raised cosine 0.88
+const int16_t FIR_Q_coeffs[FIR_SSB_num_taps] = {20,28,29,21,3,-19,-35,-36,-17,18,57,80,68,15,-72,-167,-237,-250,-196,-93,16,72,25,-141,-399,-676,-878,-922,-780,-496,-185,-8,-108,-559,-1314,-2203,-2964,-3312,-3030,-2043,-458,1448,3298,4710,5400,5262,4388,3035,1549,264,-586,-915,-791,-392,65,395,496,365,83,-231,-468,-561,-506,-349,-164,-20,41,17,-66,-163,-233,-253,-221,-157,-85,-30,-4,-5,-25,-48,-63,-63,-52,-33,-16,-3};
+// AM, 66 taps, cutoff = 4kHz, 24ksps sample rate
+const int16_t FIR_AM_coeffs[FIR_AM_num_taps] = {-2,8,22,24,-2,-39,-44,10,77,72,-33,-141,-106,82,234,135,-177,-367,-146,337,544,113,-610,-788,4,1088,1155,-327,-2125,-1949,1486,6886,10973,10973,6886,1486,-1949,-2125,-327,1155,1088,4,-788,-610,113,544,337,-146,-367,-177,135,234,82,-106,-141,-33,72,77,10,-44,-39,-2,24,22,8,-2};
 
 
 //-------------------------------------------------------
@@ -424,9 +437,8 @@ void setup()   {
 
   amp_dac.gain(2.0); //amplifier before DAC
 
-  calc_FIR_coeffs (FIR_coeffs, FIR_num_taps, (float32_t)filter_bandwidth, 70, 0, 0.0, (float32_t)SAMPLE_RATE);
-  arm_fir_init_q15(&FIR_I, FIR_num_taps, (q15_t *)FIR_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
-  arm_fir_init_q15(&FIR_Q, FIR_num_taps, (q15_t *)FIR_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
+  //calc_FIR_coeffs (FIR_AM_coeffs, FIR_AM_num_taps, (float32_t)filter_bandwidth, 70, 0, 0.0, (float32_t)SAMPLE_RATE);
+  init_FIR();
 
   AudioProcessorUsageMaxReset();
   loadLastSettings();
@@ -544,6 +556,7 @@ void serialUI(void) {
       tune(freq);
     }
   }
+  init_FIR();
 }
 
 //-------------------------------------------------------
@@ -684,7 +697,7 @@ unsigned long demodulation(void) {
     (void)__SSUB16(data, min);
     min = __SEL(min, data);
 
-#if 0
+#if 1
     I_buffer[i + 1] = I_buffer[i + 3] = 0;
     Q_buffer[i + 0] = Q_buffer[i + 2] = 0;
 #endif
@@ -858,7 +871,8 @@ unsigned long demodulation(void) {
   // Variable-leak LMS algorithm
   // taken from (c) Warren Pratts wdsp library 2016
   // GPLv3 licensed
-  if (ANR_on == 1) {
+  if (0) {
+//  if (ANR_on == 1) {
     // variable leak LMS algorithm for automatic notch or noise reduction
     // (c) Warren Pratt wdsp library 2016
     int i, j, idx;
@@ -963,7 +977,7 @@ void calc_FIR_coeffs (int16_t* coeffs, int numCoeffs, float32_t fc, float32_t As
       if (2 * ii == nc) continue;
       float x = (float)(2 * ii - nc) / (float)nc;
       float w = Izero(Beta * sqrtf(1.0f - x * x)) / izb; // Kaiser window
-      coeffs[2 * ii + 1] = 1.0f / (PIH * (float)(ii - nc / 2)) * w ;
+      coeffs[2 * ii + 1] = 32767 * (1.0f / (PIH * (float)(ii - nc / 2)) * w) ;
     }
     return;
   }
@@ -1021,3 +1035,19 @@ float32_t Izero (float32_t x)
   }   while (ds >= errorlimit * summe);
   return (summe);
 } // END Izero
+
+void init_FIR(void) {
+    switch (mode) {
+          case USB:
+          case LSB:
+          arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
+          arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
+          break;
+          case AM:
+          case SYNCAM:
+          arm_fir_init_q15(&FIR_I, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
+          arm_fir_init_q15(&FIR_Q, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
+          default:
+          break;
+      }
+}
