@@ -109,8 +109,6 @@ settings_t settings;
 unsigned long time_needed     = 0;
 unsigned long time_needed_max = 0;
 
-int16_t minval = 32767;
-int16_t maxval = -minval;
 unsigned long demodulation(void);
 
 uint16_t filter_bandwidth = 3500;
@@ -216,11 +214,11 @@ void showFreq(float freq, int mode)
   } else {
     display.println(settings.station[settings.lastStation].sname);
   }
-  
+
   const int x = 0;
   const int y = 20;
   const int size = 3;
-  
+
   display.setTextSize(size);
   display.fillRect(x, y, display.width(), size * 8, 0);
   display.setCursor(x, y);
@@ -611,6 +609,17 @@ void resetSYNCAM(void) {
   phzerror = 0.0;
 }
 
+static inline __attribute__((always_inline)) int16_t abs16(int16_t val);
+int16_t abs16(int16_t val)
+{
+  int16_t result = -val;
+  if (result >= 0)
+    result -= (result >> 15);
+  else
+    result = val;
+  return result;
+}
+
 unsigned long demodulation(void) {
 
   if ( queue_adc.available() < 1 ) return 0;
@@ -648,10 +657,8 @@ unsigned long demodulation(void) {
 #else
   int16_t * p_adc;
   p_adc = queue_adc.readBuffer();
-  int16_t min = minval;
-  int16_t max = maxval;
-  //   int16_t min = 16000;
-  //  int16_t max = -16000;
+  int16_t min = 32767;
+  int16_t max = -32768;
 
   for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
 
@@ -686,21 +693,16 @@ unsigned long demodulation(void) {
   // and maximum on odd samples on high halfword
   // look for max between halfwords 1 & 0 by comparing on low halfword
   (void)__SSUB16(max, max >> 16);
-  maxval = __SEL(max, max >> 16);// Select max on low 16-bits
+  max = __SEL(max, max >> 16);// Select max on low 16-bits
   (void)__SSUB16(min >> 16, min);// look for min between halfwords 1 & 0 by comparing on low halfword
-  minval = __SEL(min, min >> 16);// Select min on low 16-bits
-
-
+  min = __SEL(min, min >> 16);// Select min on low 16-bits
 
   if (AGC_on) {
     const int x = 16000;
-    if (min < 0) min = -min;
-    if (max < 0) max = -max;
+    min = abs16(min);
+    max = abs16(max);
     (void)__SSUB16(max, min);
     uint16_t absmax = __SEL(max, min);
-
-    maxval = -32767;
-    minval = +32766;
 
     agc_buffer[agc_idx++] = absmax;
     if (agc_idx >= AGCBUF_SIZE) agc_idx = 0;
