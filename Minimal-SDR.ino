@@ -348,6 +348,8 @@ void tune(float freq) {
   pdb_freq_actual = setPDB_freq(pdb_freq);
 
   showFreq(freq, mode);
+  biquad2_dac.setNotch(0, pdb_freq_actual / 8.0 * CORR_FACT, 15.0); // eliminates some birdy
+  resetSYNCAM();
 
 #if 1
   Serial.printf("Tune: %.1fkHz\n", freq / 1000);
@@ -392,12 +394,12 @@ void setup()   {
   display.display();
 #endif
 
-  //amp_adc.gain(0.7); //amplifier after ADC (is this needed?)
+  amp_adc.gain(0.7); //amplifier after ADC (is this needed?)
 
   // Linkwitz-Riley: gain = {0.54, 1.3, 0.54, 1.3}
   // notch is very good, even with small Q
   // we have to restrict our audio bandwidth to at least 0.5 * IF,
-//  const float cutoff_freq = _IF * 0.5 * CORR_FACT;
+  //  const float cutoff_freq = _IF * 0.5 * CORR_FACT;
   const float cutoff_freq = _IF * 0.9 * CORR_FACT;
 
   biquad1_dac.setLowpass(0,  cutoff_freq, 0.54);
@@ -435,7 +437,7 @@ void printAudioLibStatistics(void) {
     audiolibLastStatistic = t;
     //Serial.printf("Runtime: %d seconds\n", (t - timestart) / 1000);
     Serial.printf("AudioMemoryUsageMax: %d Blocks\n", AudioMemoryUsageMax());
-    float demod = (time_needed_max/1e6) * 100 / (AUDIO_BLOCK_SAMPLES/pdb_freq_actual);
+    float demod = (time_needed_max / 1e6) * 100 / (AUDIO_BLOCK_SAMPLES / pdb_freq_actual);
     Serial.printf("AudioLibrary: %.2f%% + Demodulation: %.2f%% = %.2f%%\n", AudioProcessorUsageMax(), demod, AudioProcessorUsageMax() + demod );
     //Serial.printf("Demodulation: %dus, %.2f%%\n", time_needed_max, 128/pdb_freq_actual);
     //Serial.printf("Min: %d  Max: %d   Offset: %.2fmV   ADC-Bits: %d\n", minval, maxval, (minval + maxval) * 1.2f / 65536.0  , 16 - (__builtin_clz (max(-minval, maxval)) - 16));
@@ -483,12 +485,12 @@ void serialUI(void) {
     settings.lastMode = mode;
     tune(freq);
   }
+#if defined(__MK66FX1M0__)
   else if (ch == 'S') {
     mode = SYNCAM;
     settings.lastMode = mode;
     tune(freq);
   }
-#if defined(__MK66FX1M0__)
   else if (ch == 'N') {
     if (ANR_on)
     {
@@ -537,6 +539,45 @@ int16_t I_buffer[AUDIO_BLOCK_SAMPLES];
 int16_t Q_buffer[AUDIO_BLOCK_SAMPLES];
 int16_t I_buffer2[AUDIO_BLOCK_SAMPLES];
 int16_t Q_buffer2[AUDIO_BLOCK_SAMPLES];
+
+// SYNCAM:
+const float32_t omegaN = 400.0; // PLL is able to grab a carrier that is not more than omegaN Hz away
+const float32_t zeta = 0.45; // the higher, the faster the PLL, the lower, the more stable the carrier is grabbed
+const float32_t omega_min = 2.0 * PI * - 4000.0 / SAMPLE_RATE; // absolute minimum frequency the PLL can correct for
+const float32_t omega_max = 2.0 * PI * 4000.0 / SAMPLE_RATE; // absolute maximum frequency the PLL can correct for
+const float32_t g1 = 1.0 - exp(-2.0 * omegaN * zeta / SAMPLE_RATE); // used inside the algorithm
+const float32_t g2 = - g1 + 2.0 * (1 - exp(- omegaN * zeta / SAMPLE_RATE) * cosf(omegaN / SAMPLE_RATE * sqrtf(1.0 - zeta * zeta))); // used inside the algorithm
+float32_t fil_out = 0.0;
+float32_t omega2 = 0.0;
+float32_t phzerror = 0.0;
+
+// LMS automatic notch filter
+#define ANR_DLINE_SIZE 512 //256 //512 //2048 funktioniert nicht, 128 & 256 OK                 // dline_size
+const int ANR_taps =     64; //64;                       // taps
+const int ANR_delay =    16; //16;                       // delay
+const int ANR_dline_size = ANR_DLINE_SIZE;
+const int ANR_buff_size = AUDIO_BLOCK_SAMPLES;
+//int ANR_position = 0;
+const float32_t ANR_two_mu =   0.001;   //0.0001                  // two_mu --> "gain"
+const float32_t ANR_gamma =    0.1;                      // gamma --> "leakage"
+float32_t ANR_lidx =     120.0;                      // lidx
+const float32_t ANR_lidx_min = 0.0;                      // lidx_min
+const float32_t ANR_lidx_max = 200.0;                      // lidx_max
+float32_t ANR_ngamma =   0.001;                      // ngamma
+const float32_t ANR_den_mult = 6.25e-10;                   // den_mult
+const float32_t ANR_lincr =    1.0;                      // lincr
+const float32_t ANR_ldecr =    3.0;                     // ldecr
+int ANR_mask = ANR_dline_size - 1;
+int ANR_in_idx = 0;
+float32_t ANR_d [ANR_DLINE_SIZE];
+float32_t ANR_w [ANR_DLINE_SIZE];
+
+
+void resetSYNCAM(void) {
+  fil_out = 0.0;
+  omega2 = 0.0;
+  phzerror = 0.0;
+}
 
 unsigned long demodulation(void) {
 
@@ -628,12 +669,12 @@ unsigned long demodulation(void) {
   // so a FIR filter with symmetrical coefficients should be used
   // Do not use an IIR filter
 
-//      arm_fir_q15(&FIR_I, (q15_t *)I_buffer, (q15_t *)I_buffer2, AUDIO_BLOCK_SAMPLES);
-//      arm_fir_q15(&FIR_Q, (q15_t *)Q_buffer, (q15_t *)Q_buffer2, AUDIO_BLOCK_SAMPLES);
-      arm_fir_fast_q15(&FIR_I, (q15_t *)I_buffer, (q15_t *)I_buffer2, AUDIO_BLOCK_SAMPLES);
-      arm_fir_fast_q15(&FIR_Q, (q15_t *)Q_buffer, (q15_t *)Q_buffer2, AUDIO_BLOCK_SAMPLES);
-      arm_copy_q15((q15_t *)I_buffer2, (q15_t *)I_buffer, AUDIO_BLOCK_SAMPLES);
-      arm_copy_q15((q15_t *)Q_buffer2, (q15_t *)Q_buffer, AUDIO_BLOCK_SAMPLES);
+  //      arm_fir_q15(&FIR_I, (q15_t *)I_buffer, (q15_t *)I_buffer2, AUDIO_BLOCK_SAMPLES);
+  //      arm_fir_q15(&FIR_Q, (q15_t *)Q_buffer, (q15_t *)Q_buffer2, AUDIO_BLOCK_SAMPLES);
+  arm_fir_fast_q15(&FIR_I, (q15_t *)I_buffer, (q15_t *)I_buffer2, AUDIO_BLOCK_SAMPLES);
+  arm_fir_fast_q15(&FIR_Q, (q15_t *)Q_buffer, (q15_t *)Q_buffer2, AUDIO_BLOCK_SAMPLES);
+  arm_copy_q15((q15_t *)I_buffer2, (q15_t *)I_buffer, AUDIO_BLOCK_SAMPLES);
+  arm_copy_q15((q15_t *)Q_buffer2, (q15_t *)Q_buffer, AUDIO_BLOCK_SAMPLES);
   /*
     - demodulation
     - write data to output-qeue
@@ -682,16 +723,6 @@ unsigned long demodulation(void) {
     case SYNCAM: {
         // synchronous AM demodulation - the one with the PLL ;-)
         // code adapted from the wdsp library by Warren Pratt, GNU GPLv3
-        static const float32_t omegaN = 400.0; // PLL is able to grab a carrier that is not more than omegaN Hz away
-        static const float32_t zeta = 0.45; // the higher, the faster the PLL, the lower, the more stable the carrier is grabbed
-        static const float32_t omega_min = 2.0 * PI * - 4000.0 / SAMPLE_RATE; // absolute minimum frequency the PLL can correct for
-        static const float32_t omega_max = 2.0 * PI * 4000.0 / SAMPLE_RATE; // absolute maximum frequency the PLL can correct for
-        static const float32_t g1 = 1.0 - exp(-2.0 * omegaN * zeta / SAMPLE_RATE); // used inside the algorithm
-        static const float32_t g2 = - g1 + 2.0 * (1 - exp(- omegaN * zeta / SAMPLE_RATE) * cosf(omegaN / SAMPLE_RATE * sqrtf(1.0 - zeta * zeta))); // used inside the algorithm
-
-        static float32_t fil_out = 0.0;
-        static float32_t omega2 = 0.0;
-        static float32_t phzerror = 0.0;
 
         float32_t ai;
         float32_t bi;
@@ -746,26 +777,6 @@ unsigned long demodulation(void) {
   // Variable-leak LMS algorithm
   // taken from (c) Warren Pratts wdsp library 2016
   // GPLv3 licensed
-#define ANR_DLINE_SIZE 512 //256 //512 //2048 funktioniert nicht, 128 & 256 OK                 // dline_size
-  static const int ANR_taps =     64; //64;                       // taps
-  static const int ANR_delay =    16; //16;                       // delay
-  static const int ANR_dline_size = ANR_DLINE_SIZE;
-  static const int ANR_buff_size = AUDIO_BLOCK_SAMPLES;
-  //static int ANR_position = 0;
-  static const float32_t ANR_two_mu =   0.001;   //0.0001                  // two_mu --> "gain"
-  static const float32_t ANR_gamma =    0.1;                      // gamma --> "leakage"
-  static float32_t ANR_lidx =     120.0;                      // lidx
-  static const float32_t ANR_lidx_min = 0.0;                      // lidx_min
-  static const float32_t ANR_lidx_max = 200.0;                      // lidx_max
-  static float32_t ANR_ngamma =   0.001;                      // ngamma
-  static const float32_t ANR_den_mult = 6.25e-10;                   // den_mult
-  static const float32_t ANR_lincr =    1.0;                      // lincr
-  static const float32_t ANR_ldecr =    3.0;                     // ldecr
-  static int ANR_mask = ANR_dline_size - 1;
-  static int ANR_in_idx = 0;
-  static float32_t ANR_d [ANR_DLINE_SIZE];
-  static float32_t ANR_w [ANR_DLINE_SIZE];
-
   if (ANR_on == 1) {
     // variable leak LMS algorithm for automatic notch or noise reduction
     // (c) Warren Pratt wdsp library 2016
