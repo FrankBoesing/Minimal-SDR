@@ -166,6 +166,7 @@ void initEEPROM(void) {
       Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
     i++;
   }
+  Serial.println();
 #endif
 
 }
@@ -176,10 +177,12 @@ void loadLastSettings(void) {
   if (settings.lastFreq != 0) {
     freq = settings.lastFreq;
     mode = settings.lastMode;
+    ANR_on = settings.lastNotch;
   } else {
     int i = settings.lastStation;
     freq = settings.station[i].freq;
     mode = settings.station[i].mode;
+    ANR_on = settings.station[i].notch;
   }
 
 }
@@ -323,12 +326,12 @@ void initI2S(void)
 }
 
 //-------------------------------------------------------
+float pdb_freq_actual;
 
 void tune(float freq) {
   float freq_actual;
   float freq_diff;
   float pdb_freq;
-  float pdb_freq_actual;
 
   AudioNoInterrupts();
   PDB0_SC = 0;
@@ -347,9 +350,9 @@ void tune(float freq) {
   showFreq(freq, mode);
 
 #if 1
-  Serial.println("Tune:");
-  Serial.printf("BCLK Soll: %f ist: %f Diff: %fHz\n", freq, freq_actual - _IF, freq_diff);
-  Serial.printf("PDB  Soll: %f ist: %f Diff: %fHz\n", pdb_freq, pdb_freq_actual, pdb_freq_actual - pdb_freq);
+  Serial.printf("Tune: %.1fkHz\n", freq / 1000);
+  //Serial.printf("BCLK Soll: %f ist: %f Diff: %fHz\n", freq, freq_actual - _IF, freq_diff);
+  //Serial.printf("PDB  Soll: %f ist: %f Diff: %fHz\n", pdb_freq, pdb_freq_actual, pdb_freq_actual - pdb_freq);
   Serial.println();
 #endif
 
@@ -389,7 +392,7 @@ void setup()   {
   display.display();
 #endif
 
-  amp_adc.gain(0.7); //amplifier after ADC (is this needed?)
+  //amp_adc.gain(0.7); //amplifier after ADC (is this needed?)
 
   // Linkwitz-Riley: gain = {0.54, 1.3, 0.54, 1.3}
   // notch is very good, even with small Q
@@ -430,12 +433,14 @@ void printAudioLibStatistics(void) {
 
   if (t - audiolibLastStatistic > audiolibStatisticsInterval) {
     audiolibLastStatistic = t;
-    Serial.println();
-    Serial.printf("Runtime: %d seconds\n", (t - timestart) / 1000);
+    //Serial.printf("Runtime: %d seconds\n", (t - timestart) / 1000);
     Serial.printf("AudioMemoryUsageMax: %d Blocks\n", AudioMemoryUsageMax());
-    Serial.printf("AudioProcessorUsageMax: %.2f%%\n", AudioProcessorUsageMax());
-    Serial.printf("Demodulation t-max: %d%cs\n", time_needed_max, 'µ');
-    Serial.printf("Min: %d  Max: %d   Offset: %.2fmV   ADC-Bits: %d\n", minval, maxval, (minval + maxval) * 1.2f / 65536.0  , 16 - (__builtin_clz (max(-minval, maxval)) - 16));
+    float demod = (time_needed_max/1e6) * 100 / (AUDIO_BLOCK_SAMPLES/pdb_freq_actual);
+    Serial.printf("AudioLibrary: %.2f%% + Demodulation: %.2f%% = %.2f%%\n", AudioProcessorUsageMax(), demod, AudioProcessorUsageMax() + demod );
+    //Serial.printf("Demodulation: %dus, %.2f%%\n", time_needed_max, 128/pdb_freq_actual);
+    //Serial.printf("Min: %d  Max: %d   Offset: %.2fmV   ADC-Bits: %d\n", minval, maxval, (minval + maxval) * 1.2f / 65536.0  , 16 - (__builtin_clz (max(-minval, maxval)) - 16));
+    Serial.printf("AdcBits: %d\n", 16 - (__builtin_clz (max(-minval, maxval)) - 16));
+    Serial.println();
     minval = maxval = 0;
   }
 
@@ -456,6 +461,7 @@ void serialUI(void) {
       settings.lastFreq = 0;
       freq = settings.station[i].freq;
       mode = settings.station[i].mode;
+      ANR_on = settings.station[i].notch;
       Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
       tune(freq);
     } else {
@@ -504,9 +510,9 @@ void serialUI(void) {
   }
   else if (ch >= '0' && ch <= '9') {
     input = input * 10 + (ch - '0');
-    //Serial.print("Input = "); Serial.println(input);
   } else if (ch == '\r') {
     if (input > 0) {
+      if (input < 1000) input *= 1000;
       freq = input;
       settings.lastFreq = input;
       input = 0;
@@ -677,7 +683,7 @@ unsigned long demodulation(void) {
         // synchronous AM demodulation - the one with the PLL ;-)
         // code adapted from the wdsp library by Warren Pratt, GNU GPLv3
         static const float32_t omegaN = 400.0; // PLL is able to grab a carrier that is not more than omegaN Hz away
-        static const float32_t zeta = 0.65; // the higher, the faster the PLL, the lower, the more stable the carrier is grabbed
+        static const float32_t zeta = 0.45; // the higher, the faster the PLL, the lower, the more stable the carrier is grabbed
         static const float32_t omega_min = 2.0 * PI * - 4000.0 / SAMPLE_RATE; // absolute minimum frequency the PLL can correct for
         static const float32_t omega_max = 2.0 * PI * 4000.0 / SAMPLE_RATE; // absolute maximum frequency the PLL can correct for
         static const float32_t g1 = 1.0 - exp(-2.0 * omegaN * zeta / SAMPLE_RATE); // used inside the algorithm
@@ -715,7 +721,7 @@ unsigned long demodulation(void) {
 
           // BEWARE: with a Teensy 3.2 in fixed point, this will really take a lot of time to calculate!
           // use atan2 in that case
-          det = atan2(corr[1], corr[0]);
+          det = atan2f(corr[1], corr[0]);
 
           del_out = fil_out;
           omega2 = omega2 + g2 * det;
@@ -923,5 +929,3 @@ float32_t Izero (float32_t x)
   }   while (ds >= errorlimit * summe);
   return (summe);
 } // END Izero
-
-
