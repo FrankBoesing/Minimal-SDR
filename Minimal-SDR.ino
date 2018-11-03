@@ -100,6 +100,8 @@ Adafruit_SSD1306 display(OLED_RESET);
 const char sdrname[] = "Mini - SDR";
 int mode             = SYNCAM;
 uint8_t ANR_on       = 0;         // automatic notch filter ON/OFF
+uint8_t AGC_on       = 1;         // automatic gain control ON/OFF
+float AGC_val        = 0.25;       // agc actual value
 int input            = 0;
 float freq;
 settings_t settings;
@@ -202,10 +204,13 @@ void showFreq(float freq, int mode)
   display.setCursor(0, 20 + 3 * 8);
   display.fillRect(0, 20 + 3 * 8, 4 * 8, 8, 0);
   display.println(modestr[mode]);
+  
+  display.setCursor(32, 20 + 3 * 8);
+  display.fillRect(32, 20 + 3 * 8, 3 * 8, 8, 0);
+  if (AGC_on == 1) display.println("AGC");
 
-  display.setTextSize(1);
-  display.setCursor(0, 20 + 4 * 8);
-  display.fillRect(0, 20 + 4 * 8, 4 * 8, 8, 0);
+  display.setCursor(56, 20 + 3 * 8);
+  display.fillRect(56, 20 + 3 * 8, 4 * 8, 8, 0);
   if (ANR_on == 1) display.println("Notch");
 
   display.setTextSize(size);
@@ -394,7 +399,7 @@ void setup()   {
   display.display();
 #endif
 
-  amp_adc.gain(0.7); //amplifier after ADC (is this needed?)
+  amp_adc.gain(AGC_val); //amplifier after ADC (is this needed?)
 
   // Linkwitz-Riley: gain = {0.54, 1.3, 0.54, 1.3}
   // notch is very good, even with small Q
@@ -439,11 +444,8 @@ void printAudioLibStatistics(void) {
     Serial.printf("AudioMemoryUsageMax: %d Blocks\n", AudioMemoryUsageMax());
     float demod = (time_needed_max / 1e6) * 100 / (AUDIO_BLOCK_SAMPLES / pdb_freq_actual);
     Serial.printf("AudioLibrary: %.2f%% + Demodulation: %.2f%% = %.2f%%\n", AudioProcessorUsageMax(), demod, AudioProcessorUsageMax() + demod );
-    //Serial.printf("Demodulation: %dus, %.2f%%\n", time_needed_max, 128/pdb_freq_actual);
-    //Serial.printf("Min: %d  Max: %d   Offset: %.2fmV   ADC-Bits: %d\n", minval, maxval, (minval + maxval) * 1.2f / 65536.0  , 16 - (__builtin_clz (max(-minval, maxval)) - 16));
-    Serial.printf("AdcBits: %d\n", 16 - (__builtin_clz (max(-minval, maxval)) - 16));
     Serial.println();
-    minval = maxval = 0;
+    //minval = maxval = 0;
   }
 
 #endif
@@ -505,7 +507,22 @@ void serialUI(void) {
       tune(freq);
     }
   }
-#endif
+#endif  
+  else if (ch == 'G') {
+    if (AGC_on)
+    {
+      AGC_on = 0;
+      Serial.println("AGC OFF");
+      tune(freq);
+    }
+    else
+    {
+      AGC_on = 1;
+      Serial.println("AGC ON");
+      tune(freq);
+    }
+
+  }
   else if (ch == '!') {
     EEPROMsaveSettings();
     Serial.println("Settings saved");
@@ -539,6 +556,13 @@ int16_t I_buffer[AUDIO_BLOCK_SAMPLES];
 int16_t Q_buffer[AUDIO_BLOCK_SAMPLES];
 int16_t I_buffer2[AUDIO_BLOCK_SAMPLES];
 int16_t Q_buffer2[AUDIO_BLOCK_SAMPLES];
+
+//AGC
+#define AGCBUF_SIZE 25 //One Entry per Audio Packet
+int16_t agc_buffer[AGCBUF_SIZE];
+int agc_idx = 0;
+
+
 
 // SYNCAM:
 const float32_t omegaN = 400.0; // PLL is able to grab a carrier that is not more than omegaN Hz away
@@ -618,13 +642,11 @@ unsigned long demodulation(void) {
   p_adc = queue_adc.readBuffer();
   int16_t min = minval;
   int16_t max = maxval;
+  //   int16_t min = 16000;
+  //  int16_t max = -16000;
+
   for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
-    /*
-        // Load next two samples in a single access
-        uint32_t data = *__SIMD32(p32_adc)++;
-        I_buffer[i + 0] = (int16_t) (data >> 16);
-        Q_buffer[i + 1] = (int16_t) data;
-    */
+
     int16_t s0 = p_adc[i + 0];
     int16_t s1 = p_adc[i + 1];
     I_buffer[i]     = s0;
@@ -646,6 +668,7 @@ unsigned long demodulation(void) {
     max = __SEL(max, data);
     (void)__SSUB16(data, min);
     min = __SEL(min, data);
+
 #if 0
     I_buffer[i + 1] = I_buffer[i + 3] = 0;
     Q_buffer[i + 0] = Q_buffer[i + 2] = 0;
@@ -658,6 +681,54 @@ unsigned long demodulation(void) {
   maxval = __SEL(max, max >> 16);// Select max on low 16-bits
   (void)__SSUB16(min >> 16, min);// look for min between halfwords 1 & 0 by comparing on low halfword
   minval = __SEL(min, min >> 16);// Select min on low 16-bits
+
+
+
+  if (AGC_on) {
+    const int x = 16000;
+    if (min < 0) min = -min;
+    if (max < 0) max = -max;
+    (void)__SSUB16(max, min);
+    uint16_t absmax = __SEL(max, min);
+
+    maxval = -32767;
+    minval = +32766;
+
+    agc_buffer[agc_idx++] = absmax;
+    if (agc_idx >= AGCBUF_SIZE) agc_idx = 0;
+
+    int m = 0;
+    for (int i = 0; i < AGCBUF_SIZE; i++) m += agc_buffer[i];
+    int d = m / AGCBUF_SIZE;
+
+    //  Serial.println(d);
+
+    float f = (float)x / d;
+    if (f > 1.3) {
+      AGC_val = AGC_val + (AGC_val * f / 1500);
+      amp_adc.gain(AGC_val);
+    }
+
+    else if (AGC_val > 0.1) {
+      if (f < 0.6) {
+        AGC_val = AGC_val - (AGC_val * f / 50);
+        amp_adc.gain(AGC_val);
+      }
+      else if (f < 0.7) {
+        AGC_val = AGC_val - (AGC_val * f / 200);
+        amp_adc.gain(AGC_val);
+      }
+      else if (f < 0.8) {
+        AGC_val = AGC_val - (AGC_val * f / 2000);
+        amp_adc.gain(AGC_val);
+      }
+      else if (f < 0.9) {
+        AGC_val = AGC_val - (AGC_val * f / 4000);
+        amp_adc.gain(AGC_val);
+      }
+    }
+    //Serial.println(AGC_val, 2);
+  }
 
 #endif
 
