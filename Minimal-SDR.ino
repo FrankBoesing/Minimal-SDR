@@ -196,10 +196,6 @@ void showFreq(float freq, int mode)
   //  Serial.print(freq / 1000.0, 4);
   //  Serial.println("kHz");
 #if OLED
-  const int x = 0;
-  const int y = 20;
-  const int size = 3;
-
   display.setTextSize(1);
   display.setCursor(0, 20 + 3 * 8);
   display.fillRect(0, 20 + 3 * 8, 4 * 8, 8, 0);
@@ -215,12 +211,16 @@ void showFreq(float freq, int mode)
 
   display.setCursor(0, 20 + 4 * 8);
   display.fillRect(0, 20 + 4 * 8, display.width(), 8, 0);
-  if (settings.lastFreq == 0) {
+  if (settings.lastFreq > 0) {
     // display.println("Manual");
   } else {
     display.println(settings.station[settings.lastStation].sname);
   }
-
+  
+  const int x = 0;
+  const int y = 20;
+  const int size = 3;
+  
   display.setTextSize(size);
   display.fillRect(x, y, display.width(), size * 8, 0);
   display.setCursor(x, y);
