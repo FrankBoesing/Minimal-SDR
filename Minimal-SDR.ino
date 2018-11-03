@@ -204,7 +204,7 @@ void showFreq(float freq, int mode)
   display.setCursor(0, 20 + 3 * 8);
   display.fillRect(0, 20 + 3 * 8, 4 * 8, 8, 0);
   display.println(modestr[mode]);
-  
+
   display.setCursor(32, 20 + 3 * 8);
   display.fillRect(32, 20 + 3 * 8, 3 * 8, 8, 0);
   if (AGC_on == 1) display.println("AGC");
@@ -212,6 +212,14 @@ void showFreq(float freq, int mode)
   display.setCursor(56, 20 + 3 * 8);
   display.fillRect(56, 20 + 3 * 8, 4 * 8, 8, 0);
   if (ANR_on == 1) display.println("Notch");
+
+  display.setCursor(0, 20 + 4 * 8);
+  display.fillRect(0, 20 + 4 * 8, display.width(), 8, 0);
+  if (settings.lastFreq == 0) {
+    // display.println("Manual");
+  } else {
+    display.println(settings.station[settings.lastStation].sname);
+  }
 
   display.setTextSize(size);
   display.fillRect(x, y, display.width(), size * 8, 0);
@@ -507,7 +515,7 @@ void serialUI(void) {
       tune(freq);
     }
   }
-#endif  
+#endif
   else if (ch == 'G') {
     if (AGC_on)
     {
