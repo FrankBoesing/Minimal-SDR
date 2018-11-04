@@ -147,8 +147,15 @@ const int16_t FIR_Q_coeffs[FIR_SSB_num_taps] = {20, 28, 29, 21, 3, -19, -35, -36
 
 
 // FFT with 128 points
-int16_t FFT_buffer [256];
+int16_t FFT_buffer [128];
+int16_t FFT_buffer2 [128];
+arm_rfft_instance_q15 FFT;
 
+//arm_rfft_init_q15   (   arm_rfft_instance_q15 *   S,
+//    uint32_t    fftLenReal,
+//    uint32_t    ifftFlagR,
+//    uint32_t    bitReverseFlag 
+//  )   
 
 
 //-------------------------------------------------------
@@ -460,6 +467,7 @@ void setup()   {
 
   calc_FIR_coeffs (FIR_AM_coeffs, FIR_AM_num_taps, (float32_t)filter_bandwidth, 70, 0, 0.0, (float32_t)SAMPLE_RATE);
   init_FIR();
+  arm_rfft_init_q15 (&FFT, 128, 0, 1);
 
   AudioProcessorUsageMaxReset();
   loadLastSettings();
@@ -696,12 +704,12 @@ unsigned long demodulation(void) {
 
   for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
   {
-    FFT_buffer[i * 2 + 0] = p_adc[i]; 
+    FFT_buffer2[i] = p_adc[i]; 
   }
 
-  // Before filtering, we calculate a complex FFT for a spectrum display
-  arm_cfft_q15(&arm_cfft_sR_q15_len128, FFT_buffer, 0, 1);
-  
+  // Before filtering, we calculate a real FFT for a spectrum display
+  arm_rfft_q15(&FFT, FFT_buffer2, FFT_buffer);
+
   int16_t min = 32767;
   int16_t max = -32768;
 
@@ -789,8 +797,9 @@ unsigned long demodulation(void) {
 
   queue_adc.freeBuffer();
 
-
-  show_spectrum();
+  // this seems to take more cycles than the T3.2 can provide . . .
+  // display is much too slow
+  //show_spectrum();
 
   // Here, we have to filter separately the I & Q channel with a linear phase filter
   // so a FIR filter with symmetrical coefficients should be used
@@ -1183,7 +1192,7 @@ void show_spectrum(void)
   counter++;
   if(counter == 10)
   {
-      //display.display();
+      display.display();
       counter = 0;
   }
 }
