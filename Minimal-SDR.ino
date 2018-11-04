@@ -105,7 +105,7 @@ Adafruit_SSD1306 display(OLED_RESET);
 const char sdrname[] = "Mini - SDR";
 //int mode             = SYNCAM;
 int mode             = AM;
-uint8_t ANR_on       = 0;         // automatic notch filter ON/OFF
+uint8_t ANR_on       = 0;         // off: 0, automatic notch filter:1, automatic noise reduction: 2
 uint8_t AGC_on       = 1;         // automatic gain control ON/OFF
 float AGC_val        = 0.25;       // agc actual value
 int input            = 0;
@@ -128,9 +128,9 @@ int16_t FIR_AM_coeffs[FIR_AM_num_taps];
 //int16_t FIR_I_coeffs[FIR_num_taps];
 //int16_t FIR_Q_coeffs[FIR_num_taps];
 // +45°, 86 taps, Fc=1.33kHz, BW=1.92kHz, Kaiser beta = 1.8, raised cosine 0.88
-const int16_t FIR_I_coeffs[FIR_SSB_num_taps] = {-3,-16,-33,-52,-63,-63,-48,-25,-5,-4,-30,-85,-157,-221,-253,-233,-163,-66,17,41,-20,-164,-349,-506,-561,-468,-231,83,365,496,395,65,-392,-791,-915,-586,264,1549,3035,4388,5262,5400,4710,3298,1448,-458,-2043,-3030,-3312,-2964,-2203,-1314,-559,-108,-8,-185,-496,-780,-922,-878,-676,-399,-141,25,72,16,-93,-196,-250,-237,-167,-72,15,68,80,57,18,-17,-36,-35,-19,3,21,29,28,20};
+const int16_t FIR_I_coeffs[FIR_SSB_num_taps] = { -3, -16, -33, -52, -63, -63, -48, -25, -5, -4, -30, -85, -157, -221, -253, -233, -163, -66, 17, 41, -20, -164, -349, -506, -561, -468, -231, 83, 365, 496, 395, 65, -392, -791, -915, -586, 264, 1549, 3035, 4388, 5262, 5400, 4710, 3298, 1448, -458, -2043, -3030, -3312, -2964, -2203, -1314, -559, -108, -8, -185, -496, -780, -922, -878, -676, -399, -141, 25, 72, 16, -93, -196, -250, -237, -167, -72, 15, 68, 80, 57, 18, -17, -36, -35, -19, 3, 21, 29, 28, 20};
 // -45°, 86 taps, Fc=1.33kHz, BW=1.92kHz, Kaiser beta = 1.8, raised cosine 0.88
-const int16_t FIR_Q_coeffs[FIR_SSB_num_taps] = {20,28,29,21,3,-19,-35,-36,-17,18,57,80,68,15,-72,-167,-237,-250,-196,-93,16,72,25,-141,-399,-676,-878,-922,-780,-496,-185,-8,-108,-559,-1314,-2203,-2964,-3312,-3030,-2043,-458,1448,3298,4710,5400,5262,4388,3035,1549,264,-586,-915,-791,-392,65,395,496,365,83,-231,-468,-561,-506,-349,-164,-20,41,17,-66,-163,-233,-253,-221,-157,-85,-30,-4,-5,-25,-48,-63,-63,-52,-33,-16,-3};
+const int16_t FIR_Q_coeffs[FIR_SSB_num_taps] = {20, 28, 29, 21, 3, -19, -35, -36, -17, 18, 57, 80, 68, 15, -72, -167, -237, -250, -196, -93, 16, 72, 25, -141, -399, -676, -878, -922, -780, -496, -185, -8, -108, -559, -1314, -2203, -2964, -3312, -3030, -2043, -458, 1448, 3298, 4710, 5400, 5262, 4388, 3035, 1549, 264, -586, -915, -791, -392, 65, 395, 496, 365, 83, -231, -468, -561, -506, -349, -164, -20, 41, 17, -66, -163, -233, -253, -221, -157, -85, -30, -4, -5, -25, -48, -63, -63, -52, -33, -16, -3};
 // AM, 66 taps, cutoff = 4kHz, 24ksps sample rate
 //const int16_t FIR_AM_coeffs[FIR_AM_num_taps] = {-2,8,22,24,-2,-39,-44,10,77,72,-33,-141,-106,82,234,135,-177,-367,-146,337,544,113,-610,-788,4,1088,1155,-327,-2125,-1949,1486,6886,10973,10973,6886,1486,-1949,-2125,-327,1155,1088,4,-788,-610,113,544,337,-146,-367,-177,135,234,82,-106,-141,-33,72,77,10,-44,-39,-2,24,22,8,-2};
 
@@ -209,7 +209,7 @@ void loadLastSettings(void) {
 
 //-------------------------------------------------------
 
-void showFreq(float freq, int mode)
+void showFreq(void)
 {
   //  Serial.print(freq / 1000.0, 4);
   //  Serial.println("kHz");
@@ -226,6 +226,7 @@ void showFreq(float freq, int mode)
   display.setCursor(56, 20 + 3 * 8);
   display.fillRect(56, 20 + 3 * 8, 4 * 8, 8, 0);
   if (ANR_on == 1) display.println("Notch");
+  else if (ANR_on == 2) display.println("Noise");
 
   display.setCursor(0, 20 + 4 * 8);
   display.fillRect(0, 20 + 4 * 8, display.width(), 8, 0);
@@ -378,7 +379,7 @@ void tune(float freq) {
   pdb_freq = freq_diff * 4.0 + SAMPLE_RATE;     //*4.0 due to I/Q
   pdb_freq_actual = setPDB_freq(pdb_freq);
 
-  showFreq(freq, mode);
+  showFreq();
   biquad2_dac.setNotch(0, pdb_freq_actual / 8.0 * CORR_FACT, 15.0); // eliminates some birdy
   resetSYNCAM();
 
@@ -519,18 +520,22 @@ void serialUI(void) {
     tune(freq);
   }
   else if (ch == 'N') {
-    if (ANR_on)
+    if (ANR_on > 1)
     {
       ANR_on = 0;
       Serial.println("Auto-Notch OFF");
-      tune(freq);
     }
-    else
+    else if (ANR_on == 0)
     {
       ANR_on = 1;
       Serial.println("Auto-Notch ON");
-      tune(freq);
     }
+    else if (ANR_on == 1)
+    {
+      ANR_on = 2;
+      Serial.println("Auto-Noise ON");
+    }
+    showFreq();
   }
 #endif
   else if (ch == 'G') {
@@ -538,15 +543,13 @@ void serialUI(void) {
     {
       AGC_on = 0;
       Serial.println("AGC OFF");
-      tune(freq);
     }
     else
     {
       AGC_on = 1;
       Serial.println("AGC ON");
-      tune(freq);
     }
-
+    showFreq();
   }
   else if (ch == '!') {
     EEPROMsaveSettings();
@@ -878,8 +881,8 @@ unsigned long demodulation(void) {
   // Variable-leak LMS algorithm
   // taken from (c) Warren Pratts wdsp library 2016
   // GPLv3 licensed
-  if (0) {
-//  if (ANR_on == 1) {
+
+  if (ANR_on > 0) {
     // variable leak LMS algorithm for automatic notch or noise reduction
     // (c) Warren Pratt wdsp library 2016
     int i, j, idx;
@@ -903,9 +906,9 @@ unsigned long demodulation(void) {
       inv_sigp = 1.0 / (sigma + 1e-10);
       error = ANR_d[ANR_in_idx] - y;
 
-      p_dac[i] = error;
-      //if (ANR_notch) float_buffer_R[i] = error; // NOTCH FILTER
-      //else  float_buffer_R[i] = y; // NOISE REDUCTION
+      //p_dac[i] = error;
+      if (ANR_on == 1) p_dac[i] = error;// NOTCH FILTER
+      else  p_dac[i] = y; // NOISE REDUCTION
 
       if ((nel = error * (1.0 - ANR_two_mu * sigma * inv_sigp)) < 0.0) nel = -nel;
       if ((nev = ANR_d[ANR_in_idx] - (1.0 - ANR_two_mu * ANR_ngamma) * y - ANR_two_mu * error * sigma * inv_sigp) < 0.0) nev = -nev;
@@ -1044,17 +1047,17 @@ float32_t Izero (float32_t x)
 } // END Izero
 
 void init_FIR(void) {
-    switch (mode) {
-          case USB:
-          case LSB:
-          arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
-          arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
-          break;
-          case AM:
-          case SYNCAM:
-          arm_fir_init_q15(&FIR_I, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
-          arm_fir_init_q15(&FIR_Q, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
-          default:
-          break;
-      }
+  switch (mode) {
+    case USB:
+    case LSB:
+      arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
+      arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
+      break;
+    case AM:
+    case SYNCAM:
+      arm_fir_init_q15(&FIR_I, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
+      arm_fir_init_q15(&FIR_Q, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
+    default:
+      break;
+  }
 }
