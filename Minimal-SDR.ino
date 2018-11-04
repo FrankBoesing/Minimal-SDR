@@ -49,18 +49,14 @@
 /********************************************************************/
 #include "stations.h"
 #include <util/crc16.h>
-//#include "<arm_math.h>"
-
-#include "src/CMSIS_5/arm_math.h"
-#include "src/CMSIS_5/arm_const_structs.h"
-
 
 #include <Audio.h>
 #include <Wire.h>
 #include <SPI.h>
 #include <SD.h>
 #include <SerialFlash.h>
-
+#include <arm_math.h>
+#include <arm_const_structs.h>
 
 AudioInputAnalog         adc1;           //xy=429,313
 AudioAmplifier           amp_adc;           //xy=583,313
@@ -82,7 +78,7 @@ AudioConnection          patchCord5(amp_dac, dac1);
 #define OLED 1
 
 #if OLED
-#include "src/Adafruit_SSD1306/Adafruit_SSD1306.h"
+#include "Adafruit_SSD1306.h"
 #include <Adafruit_GFX.h>
 #define I2C_SPEED   2000000
 #define OLED_I2CADR 0x3C    //Adafruit: 0x3D
@@ -151,8 +147,8 @@ const int16_t FIR_Q_coeffs[FIR_SSB_num_taps] = {20, 28, 29, 21, 3, -19, -35, -36
 
 
 // FFT with 128 points
-int16_t FFT_buffer [256];
-int16_t FFT_buffer2 [256];
+int16_t FFT_buffer [128];
+int16_t FFT_buffer2 [128];
 arm_rfft_instance_q15 FFT;
 
 
@@ -702,14 +698,12 @@ unsigned long demodulation(void) {
 
   for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
   {
-    // Beware, other way round ! this is always fun :-)
-    FFT_buffer2[AUDIO_BLOCK_SAMPLES - 1 - i] = p_adc[i]; 
+    FFT_buffer2[i] = p_adc[i]; 
   }
 
   // Before calculating I & Q, we calculate a real FFT for a spectrum display
   // therefore, our signal is in the centre (at 6kHz IF)
   arm_rfft_q15(&FFT, FFT_buffer2, FFT_buffer);
-
 
   int16_t min = 32767;
   int16_t max = -32768;
@@ -755,12 +749,11 @@ unsigned long demodulation(void) {
     const int x = 16000;
     min = abs16(min);
     max = abs16(max);
-    
     (void)__SSUB16(max, min);
     uint16_t absmax = __SEL(max, min);
-    
-    agc_buffer[agc_idx] = absmax;
-    if (++agc_idx >= AGCBUF_SIZE) agc_idx = 0;
+
+    agc_buffer[agc_idx++] = absmax;
+    if (agc_idx >= AGCBUF_SIZE) agc_idx = 0;
 
     int m = 0;
     for (int i = 0; i < AGCBUF_SIZE; i++) m += agc_buffer[i];
@@ -916,7 +909,7 @@ unsigned long demodulation(void) {
   // taken from (c) Warren Pratts wdsp library 2016
   // GPLv3 licensed
 
-  if (0 && ANR_on > 0) {
+  if (ANR_on > 0) {
     // variable leak LMS algorithm for automatic notch or noise reduction
     // (c) Warren Pratt wdsp library 2016
     int i, j, idx;
@@ -1111,7 +1104,6 @@ const int16_t spectrum_x = 0;
 
 void show_spectrum(void)
 {
-#if 0  
   static int counter = 0;
   int16_t y_old, y_new, y1_new, y1_old;
   int16_t y1_old_minus = 0;
@@ -1124,7 +1116,7 @@ void show_spectrum(void)
   
   for (int16_t x = 0; x < 127; x++)
   {
-    pixelnew[x] = abs(FFT_buffer[x]) / 200;
+    pixelnew[x] = abs(FFT_buffer[127 - x]) / 200;
       
           if ((x > 1) && (x < 127))
       // moving window - weighted average of 5 points of the spectrum to smooth spectrum in the frequency domain
@@ -1165,7 +1157,7 @@ void show_spectrum(void)
       y1_old_minus = y1_old;
       y1_new_minus = y1_new;
     }
-    if (x == 254)
+    if (x == 127)
     {
       y1_old_minus = y1_old;
       y1_new_minus = y1_new;
@@ -1210,5 +1202,5 @@ void show_spectrum(void)
   } // end for loop
       display.display();
   }
-#endif  
 }
+
