@@ -155,12 +155,6 @@ int16_t FFT_buffer [256];
 int16_t FFT_buffer2 [256];
 arm_rfft_instance_q15 FFT;
 
-//arm_rfft_init_q15   (   arm_rfft_instance_q15 *   S,
-//    uint32_t    fftLenReal,
-//    uint32_t    ifftFlagR,
-//    uint32_t    bitReverseFlag 
-//  )   
-
 
 //-------------------------------------------------------
 
@@ -441,7 +435,7 @@ void setup()   {
 
   display.setCursor(4, 0);
   display.setTextSize(2);
-  display.println(sdrname);
+  //display.println(sdrname);
 
   display.setTextSize(1);
   display.setCursor(110, 20 + 3 * 8);
@@ -708,10 +702,12 @@ unsigned long demodulation(void) {
 
   for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
   {
-    FFT_buffer2[i] = p_adc[i]; 
+    // Beware, other way round ! this is always fun :-)
+    FFT_buffer2[AUDIO_BLOCK_SAMPLES - 1 - i] = p_adc[i]; 
   }
 
-  // Before filtering, we calculate a real FFT for a spectrum display
+  // Before calculating I & Q, we calculate a real FFT for a spectrum display
+  // therefore, our signal is in the centre (at 6kHz IF)
   arm_rfft_q15(&FFT, FFT_buffer2, FFT_buffer);
 
 
@@ -805,7 +801,7 @@ unsigned long demodulation(void) {
 
   // this seems to take more cycles than the T3.2 can provide . . .
   // display is much too slow
-  //show_spectrum();
+  show_spectrum();
 
   // Here, we have to filter separately the I & Q channel with a linear phase filter
   // so a FIR filter with symmetrical coefficients should be used
@@ -1087,11 +1083,15 @@ float32_t Izero (float32_t x)
 void init_FIR(void) {
   switch (mode) {
     case USB:
+      arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
+      arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
     case LSB:
       arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
       arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
       break;
     case AM:
+      arm_fir_init_q15(&FIR_I, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
+      arm_fir_init_q15(&FIR_Q, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
     case SYNCAM:
       arm_fir_init_q15(&FIR_I, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
       arm_fir_init_q15(&FIR_Q, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
@@ -1105,8 +1105,8 @@ int16_t pixelold[128];
 const int16_t spectrum_height = 16;
 const int16_t spectrum_y = 0;
 const int16_t spectrum_x = 0;
-#define SPECTRUM_DELETE_COLOUR 0
-#define SPECTRUM_DRAW_COLOUR 1
+#define SPECTRUM_DELETE_COLOUR BLACK
+#define SPECTRUM_DRAW_COLOUR WHITE
 
 
 void show_spectrum(void)
@@ -1116,10 +1116,17 @@ void show_spectrum(void)
   int16_t y_old, y_new, y1_new, y1_old;
   int16_t y1_old_minus = 0;
   int16_t y1_new_minus = 0;
+
+    counter++;
+  if(counter == 25)
+  {
+      counter = 0;
+  
   for (int16_t x = 0; x < 127; x++)
   {
-    pixelnew[x] = FFT_buffer[x] / 1000;
-    if ((x > 1) && (x < 128))
+    pixelnew[x] = abs(FFT_buffer[x]) / 200;
+      
+          if ((x > 1) && (x < 127))
       // moving window - weighted average of 5 points of the spectrum to smooth spectrum in the frequency domain
       // weights:  x: 50% , x-1/x+1: 36%, x+2/x-2: 14%
     {
@@ -1139,14 +1146,16 @@ void show_spectrum(void)
       y_new = pixelnew[x];
       y_old = pixelold[x];
     }
-    if (y_old > (spectrum_height - 7))
+
+    
+    if (y_old > (spectrum_height))
     {
-      y_old = (spectrum_height - 7);
+      y_old = (spectrum_height);
     }
 
-    if (y_new > (spectrum_height - 7))
+    if (y_new > (spectrum_height))
     {
-      y_new = (spectrum_height - 7);
+      y_new = (spectrum_height);
     }
     y1_old  = (spectrum_y + spectrum_height - 1) - y_old;
     y1_new  = (spectrum_y + spectrum_height - 1) - y_new;
@@ -1163,6 +1172,7 @@ void show_spectrum(void)
     }
 
     {
+
       // DELETE OLD LINE/POINT
       if (y1_old - y1_old_minus > 1)
       { // plot line upwards
@@ -1179,6 +1189,7 @@ void show_spectrum(void)
 
       // DRAW NEW LINE/POINT
       if (y1_new - y1_new_minus > 1)
+      
       { // plot line upwards
         display.drawFastVLine(x + spectrum_x, y1_new_minus + 1, y1_new - y1_new_minus, SPECTRUM_DRAW_COLOUR);
       }
@@ -1195,12 +1206,9 @@ void show_spectrum(void)
       y1_old_minus = y1_old;
 
     }
+    pixelold[x] = y_new;
   } // end for loop
-  counter++;
-  if(counter == 10)
-  {
       display.display();
-      counter = 0;
   }
 #endif  
 }
