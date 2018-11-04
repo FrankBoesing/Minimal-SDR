@@ -49,14 +49,12 @@
 /********************************************************************/
 #include "stations.h"
 #include <util/crc16.h>
-
-#include <Audio.h>
-#include <Wire.h>
-#include <SPI.h>
-#include <SD.h>
-#include <SerialFlash.h>
-#include <arm_math.h>
-#include <arm_const_structs.h>
+#include <Adafruit_GFX.h>
+#include <i2c_t3.h>
+#include "src/CMSIS_5/arm_math.h"
+#include "src/CMSIS_5/arm_const_structs.h"
+#include "src/Adafruit_SSD1306/Adafruit_SSD1306.h"
+#include "src/Audio/Audio.h"
 
 AudioInputAnalog         adc1;           //xy=429,313
 AudioAmplifier           amp_adc;           //xy=583,313
@@ -75,11 +73,7 @@ AudioConnection          patchCord4a(biquad1_dac, biquad2_dac);
 AudioConnection          patchCord4(biquad2_dac, amp_dac);
 AudioConnection          patchCord5(amp_dac, dac1);
 
-#define OLED 1
 
-#if OLED
-#include "Adafruit_SSD1306.h"
-#include <Adafruit_GFX.h>
 #define I2C_SPEED   2000000
 #define OLED_I2CADR 0x3C    //Adafruit: 0x3D
 #define OLED_RESET  255
@@ -89,7 +83,7 @@ AudioConnection          patchCord5(amp_dac, dac1);
 #endif
 
 Adafruit_SSD1306 display(OLED_RESET);
-#endif //if OLED
+
 
 #define AUDIOMEMORY     20
 
@@ -223,7 +217,7 @@ void showFreq(void)
 {
   //  Serial.print(freq / 1000.0, 4);
   //  Serial.println("kHz");
-#if OLED
+
   display.setTextSize(1);
   display.setCursor(0, 20 + 3 * 8);
   display.fillRect(0, 20 + 3 * 8, 4 * 8, 8, 0);
@@ -263,7 +257,7 @@ void showFreq(void)
   display.print(f, n);
 
   display.display();
-#endif
+
 }
 
 //-------------------------------------------------------
@@ -423,7 +417,7 @@ void setup()   {
   initEEPROM();
   initI2S();
 
-#if OLED
+
   display.begin(SSD1306_SWITCHCAPVCC, OLED_I2CADR);
   Wire.setClock(I2C_SPEED);
   display.clearDisplay();
@@ -438,7 +432,7 @@ void setup()   {
   display.println("kHz");
 
   display.display();
-#endif
+
 
   amp_adc.gain(AGC_val); //amplifier after ADC (is this needed?)
 
@@ -695,12 +689,16 @@ unsigned long demodulation(void) {
 #else
   int16_t * p_adc;
   p_adc = queue_adc.readBuffer();
-
+  
+#if 0
   for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
   {
     FFT_buffer2[i] = p_adc[i]; 
   }
-
+#else  
+  memcpy (FFT_buffer2, p_adc, sizeof(FFT_buffer2));
+#endif  
+    
   // Before calculating I & Q, we calculate a real FFT for a spectrum display
   // therefore, our signal is in the centre (at 6kHz IF)
   arm_rfft_q15(&FFT, FFT_buffer2, FFT_buffer);
@@ -713,7 +711,7 @@ unsigned long demodulation(void) {
     int16_t s0 = p_adc[i + 0];
     int16_t s1 = p_adc[i + 1];
     I_buffer[i]     = s0;
-    Q_buffer[i + 1] = s1;
+    Q_buffer[i + 1] = s1;    
     uint32_t data = (((uint16_t)s0) << 16) | s1;
 
     (void)__SSUB16(max, data);// Parallel comparison of max and new samples
@@ -1200,7 +1198,6 @@ void show_spectrum(void)
     }
     pixelold[x] = y_new;
   } // end for loop
-      display.display();
+      display.display(spectrum_y,spectrum_y + spectrum_height);
   }
 }
-
