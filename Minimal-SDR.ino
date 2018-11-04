@@ -108,6 +108,8 @@ int mode             = AM;
 uint8_t ANR_on       = 0;         // off: 0, automatic notch filter:1, automatic noise reduction: 2
 uint8_t AGC_on       = 1;         // automatic gain control ON/OFF
 float AGC_val        = 0.25;       // agc actual value
+
+uint8_t clk_errcmp   = 0;       // en-/disable clk-error compensation
 int input            = 0;
 float freq;
 settings_t settings;
@@ -376,9 +378,13 @@ void tune(float freq) {
   freq_diff = freq_actual - _IF - freq;
 
   // PDB (ADC + DAC) :
-  pdb_freq = freq_diff * 4.0 + SAMPLE_RATE;     //*4.0 due to I/Q
+  if (clk_errcmp) {
+    pdb_freq = freq_diff * 4.0 + SAMPLE_RATE;     //*4.0 due to I/Q  
+  } else {
+    pdb_freq = SAMPLE_RATE;
+  }
   pdb_freq_actual = setPDB_freq(pdb_freq);
-
+  
   showFreq();
   biquad2_dac.setNotch(0, pdb_freq_actual / 8.0 * CORR_FACT, 15.0); // eliminates some birdy
   resetSYNCAM();
