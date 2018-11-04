@@ -15,9 +15,8 @@
 * MCP amplifies and lowpass filters the IF signal 
 * Teensy ADC samples incoming IF signal with sample rate == IF * 4
 * Software Oscillators cos & sin are used to produce I & Q signals and simultaneously translate the I & Q signals to audio baseband
-* I & Q are filtered by linear phase FIR [tbd]
-* Demodulation --> SSB, AM or synchronous AM
+* I & Q are filtered by phase-added Hilbert FIR bandpass (for SSB) or FIR lowpass filters (AM) 
+* Demodulation --> SSB, AM
 * Decoding of time signals or other digital modes [tbd]
-* auto-notch filter to eliminate birdies
 * IIR biquad filter to shape baseband audio
 * Audio output through Teensy DAC
