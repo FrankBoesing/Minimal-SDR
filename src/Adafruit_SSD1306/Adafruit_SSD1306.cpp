@@ -325,12 +325,11 @@ void Adafruit_SSD1306::ssd1306_command(uint8_t c) {
   else
   {
     // I2C
-    uint8_t control[2] = {0x00, c};   // Co = 0, D/C = 0
+    uint8_t control[2] = {0x00, c};   // Co = 0, D/C = 0		
+		Wire.finish();
     Wire.beginTransmission(_i2caddr);
-    //Wire.write(control);
-    //Wire.write(c);
 		Wire.write(control,2);
-    Wire.endTransmission();
+    Wire.sendTransmission();
   }
 }
 
@@ -424,6 +423,7 @@ void Adafruit_SSD1306::dim(boolean dim) {
 }
 
 void Adafruit_SSD1306::display(void) {
+	Wire.finish();
   ssd1306_command(SSD1306_COLUMNADDR);
   ssd1306_command(0);   // Column start address (0 = reset)
   ssd1306_command(SSD1306_LCDWIDTH-1); // Column end address (127 = reset)
@@ -474,14 +474,19 @@ void Adafruit_SSD1306::display(void) {
     //Serial.println(TWSR & 0x3, DEC);
 
     // I2C
-		const int chunk = 256;
-    for (uint16_t i=0; i<(SSD1306_LCDWIDTH*SSD1306_LCDHEIGHT/8); i+=chunk) {
-      // send a bunch of data in one xmission
+		uint16_t i = 0;
+		uint16_t size = SSD1306_LCDHEIGHT * SSD1306_LCDWIDTH / 8;
+		do {			
+			Wire.finish();
       Wire.beginTransmission(_i2caddr);
       WIRE_WRITE(0x40);
-			Wire.write(&buffer[i],chunk);		
-      Wire.endTransmission();
-    }
+			int chunk = min(256, size) ;
+			Wire.write(&buffer[i],chunk);	
+			Wire.sendTransmission(I2C_STOP);			
+			i += chunk;
+			size -= chunk;
+     // Wire.endTransmission();			
+		} while (size>0);
 #ifdef TWBR
     TWBR = twbrbackup;
 #endif
@@ -489,6 +494,7 @@ void Adafruit_SSD1306::display(void) {
 }
 
 void Adafruit_SSD1306::display(int fromline, int toline) {
+	Wire.finish();
   ssd1306_command(SSD1306_COLUMNADDR);
   ssd1306_command(fromline * SSD1306_LCDWIDTH / 8);   // Column start address (0 = reset)
   ssd1306_command(SSD1306_LCDWIDTH-1); // Column end address (127 = reset)
@@ -509,13 +515,15 @@ void Adafruit_SSD1306::display(int fromline, int toline) {
 		uint16_t i = fromline * SSD1306_LCDWIDTH / 8;
 		uint16_t size = (fromline+toline) * SSD1306_LCDWIDTH / 8;
 		do {			
+			Wire.finish();
       Wire.beginTransmission(_i2caddr);
       WIRE_WRITE(0x40);
 			int chunk = min(256, size) ;
-			Wire.write(&buffer[i],chunk);					
+			Wire.write(&buffer[i],chunk);	
+			Wire.sendTransmission(I2C_STOP);			
 			i += chunk;
 			size -= chunk;
-      Wire.endTransmission();			
+     // Wire.endTransmission();			
 		} while (size>0);
 
   
