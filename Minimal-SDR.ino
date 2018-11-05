@@ -141,7 +141,7 @@ const int16_t FIR_Q_coeffs[FIR_SSB_num_taps] = {20, 28, 29, 21, 3, -19, -35, -36
 
 
 // FFT with 128 points
-int16_t FFT_buffer [128];
+int16_t FFT_buffer [256];
 int16_t FFT_buffer2 [128];
 arm_rfft_instance_q15 FFT;
 
@@ -227,10 +227,12 @@ void showFreq(void)
   display.fillRect(32, 20 + 3 * 8, 3 * 8, 8, 0);
   if (AGC_on == 1) display.println("AGC");
 
+#if defined(__MK66FX1M0__)
   display.setCursor(56, 20 + 3 * 8);
   display.fillRect(56, 20 + 3 * 8, 4 * 8, 8, 0);
   if (ANR_on == 1) display.println("Notch");
   else if (ANR_on == 2) display.println("Noise");
+#endif 
 
   display.setCursor(0, 20 + 4 * 8);
   display.fillRect(0, 20 + 4 * 8, display.width(), 8, 0);
@@ -381,12 +383,12 @@ void tune(float freq) {
 
   // PDB (ADC + DAC) :
   if (clk_errcmp) {
-    pdb_freq = freq_diff * 4.0 + SAMPLE_RATE;     //*4.0 due to I/Q  
+    pdb_freq = freq_diff * 4.0 + SAMPLE_RATE;     //*4.0 due to I/Q
   } else {
     pdb_freq = SAMPLE_RATE;
   }
   pdb_freq_actual = setPDB_freq(pdb_freq);
-  
+
   showFreq();
   biquad2_dac.setNotch(0, pdb_freq_actual / 8.0 * CORR_FACT, 15.0); // eliminates some birdy
   resetSYNCAM();
@@ -529,7 +531,7 @@ void serialUI(void) {
     tune(freq);
   }
   else if (ch == 'N') {
-    if (ANR_on > 1)
+    if (ANR_on == 2)
     {
       ANR_on = 0;
       Serial.println("Auto-Notch OFF");
@@ -544,7 +546,7 @@ void serialUI(void) {
       ANR_on = 2;
       Serial.println("Auto-Noise ON");
     }
-    showFreq();
+    tune(freq);
   }
 #endif
   else if (ch == 'G') {
@@ -670,38 +672,17 @@ unsigned long demodulation(void) {
   // if IF == sample rate / 4,
   // the Cosine is {1, 0, -1, 0, 1, 0, -1, 0 . . . .}
   // and the Sine is {0, 1, 0, -1, 0, 1, 0, -1 . . . .}
-#if 0
   int16_t * p_adc;
   p_adc = queue_adc.readBuffer();
-  for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
 
-    I_buffer[i]     = p_adc[i];
-    I_buffer[i + 1] = 0;
-    I_buffer[i + 2] = - p_adc[i + 2];
-    I_buffer[i + 3] = 0;
-
-    Q_buffer[i]     = 0;
-    Q_buffer[i + 1] = p_adc[i + 1];
-    Q_buffer[i + 2] = 0;
-    Q_buffer[i + 3] = - p_adc[i + 3];
-
-  }
-#else
-  int16_t * p_adc;
-  p_adc = queue_adc.readBuffer();
-  
 #if 0
   for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
   {
-    FFT_buffer2[i] = p_adc[i]; 
+    FFT_buffer2[i] = p_adc[i];
   }
-#else  
+#else
   memcpy (FFT_buffer2, p_adc, sizeof(FFT_buffer2));
-#endif  
-    
-  // Before calculating I & Q, we calculate a real FFT for a spectrum display
-  // therefore, our signal is in the centre (at 6kHz IF)
-  arm_rfft_q15(&FFT, FFT_buffer2, FFT_buffer);
+#endif
 
   int16_t min = 32767;
   int16_t max = -32768;
@@ -711,7 +692,7 @@ unsigned long demodulation(void) {
     int16_t s0 = p_adc[i + 0];
     int16_t s1 = p_adc[i + 1];
     I_buffer[i]     = s0;
-    Q_buffer[i + 1] = s1;    
+    Q_buffer[i + 1] = s1;
     uint32_t data = (((uint16_t)s0) << 16) | s1;
 
     (void)__SSUB16(max, data);// Parallel comparison of max and new samples
@@ -735,6 +716,9 @@ unsigned long demodulation(void) {
     Q_buffer[i + 0] = Q_buffer[i + 2] = 0;
 #endif
   }
+  queue_adc.freeBuffer();
+
+    
   // Now we have maximum on even samples on low halfword of max
   // and maximum on odd samples on high halfword
   // look for max between halfwords 1 & 0 by comparing on low halfword
@@ -742,6 +726,7 @@ unsigned long demodulation(void) {
   max = __SEL(max, max >> 16);// Select max on low 16-bits
   (void)__SSUB16(min >> 16, min);// look for min between halfwords 1 & 0 by comparing on low halfword
   min = __SEL(min, min >> 16);// Select min on low 16-bits
+
 
   if (AGC_on) {
     const int x = 16000;
@@ -786,13 +771,6 @@ unsigned long demodulation(void) {
     //Serial.println(AGC_val, 2);
   }
 
-#endif
-
-  queue_adc.freeBuffer();
-
-  // this seems to take more cycles than the T3.2 can provide . . .
-  // display is much too slow
-  show_spectrum();
 
   // Here, we have to filter separately the I & Q channel with a linear phase filter
   // so a FIR filter with symmetrical coefficients should be used
@@ -802,8 +780,10 @@ unsigned long demodulation(void) {
   //      arm_fir_q15(&FIR_Q, (q15_t *)Q_buffer, (q15_t *)Q_buffer2, AUDIO_BLOCK_SAMPLES);
   arm_fir_fast_q15(&FIR_I, (q15_t *)I_buffer, (q15_t *)I_buffer2, AUDIO_BLOCK_SAMPLES);
   arm_fir_fast_q15(&FIR_Q, (q15_t *)Q_buffer, (q15_t *)Q_buffer2, AUDIO_BLOCK_SAMPLES);
+
   arm_copy_q15((q15_t *)I_buffer2, (q15_t *)I_buffer, AUDIO_BLOCK_SAMPLES);
   arm_copy_q15((q15_t *)Q_buffer2, (q15_t *)Q_buffer, AUDIO_BLOCK_SAMPLES);
+
   /*
     - demodulation
     - write data to output-qeue
@@ -900,6 +880,7 @@ unsigned long demodulation(void) {
       //-------------------------------------------------------
   }
 
+#if defined(__MK66FX1M0__)
   // LMS automatic notch filter to eliminate annoying birdies
 
   // Automatic noise reduction
@@ -954,7 +935,12 @@ unsigned long demodulation(void) {
       ANR_in_idx = (ANR_in_idx + ANR_mask) & ANR_mask;
     }
   }
+#endif  
   queue_dac.playBuffer();
+
+  // this seems to take more cycles than the T3.2 can provide . . .
+  // display is much too slow
+  show_spectrum();
 
   return micros() - time_start;
 }
@@ -1092,14 +1078,15 @@ void init_FIR(void) {
 }
 
 int16_t pixelnew[128];
-int16_t pixelold[128];
+
 const int16_t spectrum_height = 16;
 const int16_t spectrum_y = 0;
 const int16_t spectrum_x = 0;
 #define SPECTRUM_DELETE_COLOUR BLACK
 #define SPECTRUM_DRAW_COLOUR WHITE
 
-
+#if 0
+int16_t pixelold[128];
 void show_spectrum(void)
 {
   static int counter = 0;
@@ -1107,97 +1094,176 @@ void show_spectrum(void)
   int16_t y1_old_minus = 0;
   int16_t y1_new_minus = 0;
 
-    counter++;
-  if(counter == 25)
+  counter++;
+  if (counter == 25)
   {
-      counter = 0;
+    counter = 0;
+    arm_rfft_q15(&FFT, FFT_buffer2, FFT_buffer);
   
-  for (int16_t x = 0; x < 127; x++)
-  {
-    pixelnew[x] = abs(FFT_buffer[127 - x]) / 200;
-      
-          if ((x > 1) && (x < 127))
-      // moving window - weighted average of 5 points of the spectrum to smooth spectrum in the frequency domain
-      // weights:  x: 50% , x-1/x+1: 36%, x+2/x-2: 14%
+    for (int16_t x = 0; x < 127; x++)
     {
-      if (0)
+      pixelnew[x] = abs(FFT_buffer[127 - x]) / 200;
+
+      if ((x > 1) && (x < 127))
+        // moving window - weighted average of 5 points of the spectrum to smooth spectrum in the frequency domain
+        // weights:  x: 50% , x-1/x+1: 36%, x+2/x-2: 14%
       {
-        y_new = pixelnew[x] * 0.5 + pixelnew[x - 1] * 0.18 + pixelnew[x + 1] * 0.18 + pixelnew[x - 2] * 0.07 + pixelnew[x + 2] * 0.07;
-        y_old = pixelold[x] * 0.5 + pixelold[x - 1] * 0.18 + pixelold[x + 1] * 0.18 + pixelold[x - 2] * 0.07 + pixelold[x + 2] * 0.07;
+        if (0)
+        {
+          y_new = pixelnew[x] * 0.5 + pixelnew[x - 1] * 0.18 + pixelnew[x + 1] * 0.18 + pixelnew[x - 2] * 0.07 + pixelnew[x + 2] * 0.07;
+          y_old = pixelold[x] * 0.5 + pixelold[x - 1] * 0.18 + pixelold[x + 1] * 0.18 + pixelold[x - 2] * 0.07 + pixelold[x + 2] * 0.07;
+        }
+        else
+        {
+          y_new = pixelnew[x];
+          y_old = pixelold[x];
+        }
       }
       else
       {
         y_new = pixelnew[x];
         y_old = pixelold[x];
       }
-    }
-    else
-    {
-      y_new = pixelnew[x];
-      y_old = pixelold[x];
-    }
 
-    
-    if (y_old > (spectrum_height))
-    {
-      y_old = (spectrum_height);
-    }
 
-    if (y_new > (spectrum_height))
-    {
-      y_new = (spectrum_height);
-    }
-    y1_old  = (spectrum_y + spectrum_height - 1) - y_old;
-    y1_new  = (spectrum_y + spectrum_height - 1) - y_new;
-
-    if (x == 0)
-    {
-      y1_old_minus = y1_old;
-      y1_new_minus = y1_new;
-    }
-    if (x == 127)
-    {
-      y1_old_minus = y1_old;
-      y1_new_minus = y1_new;
-    }
-
-    {
-
-      // DELETE OLD LINE/POINT
-      if (y1_old - y1_old_minus > 1)
-      { // plot line upwards
-        display.drawFastVLine(x + spectrum_x, y1_old_minus + 1, y1_old - y1_old_minus, SPECTRUM_DELETE_COLOUR);
-      }
-      else if (y1_old - y1_old_minus < -1)
-      { // plot line downwards
-        display.drawFastVLine(x + spectrum_x, y1_old, y1_old_minus - y1_old, SPECTRUM_DELETE_COLOUR);
-      }
-      else
+      if (y_old > (spectrum_height))
       {
-        display.drawPixel(x + spectrum_x, y1_old, SPECTRUM_DELETE_COLOUR); // delete old pixel
+        y_old = (spectrum_height);
       }
 
-      // DRAW NEW LINE/POINT
-      if (y1_new - y1_new_minus > 1)
-      
-      { // plot line upwards
-        display.drawFastVLine(x + spectrum_x, y1_new_minus + 1, y1_new - y1_new_minus, SPECTRUM_DRAW_COLOUR);
-      }
-      else if (y1_new - y1_new_minus < -1)
-      { // plot line downwards
-        display.drawFastVLine(x + spectrum_x, y1_new, y1_new_minus - y1_new, SPECTRUM_DRAW_COLOUR);
-      }
-      else
+      if (y_new > (spectrum_height))
       {
-        display.drawPixel(x + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR); // write new pixel
+        y_new = (spectrum_height);
+      }
+      y1_old  = (spectrum_y + spectrum_height - 1) - y_old;
+      y1_new  = (spectrum_y + spectrum_height - 1) - y_new;
+
+      if (x == 0)
+      {
+        y1_old_minus = y1_old;
+        y1_new_minus = y1_new;
+      }
+      if (x == 127)
+      {
+        y1_old_minus = y1_old;
+        y1_new_minus = y1_new;
       }
 
-      y1_new_minus = y1_new;
-      y1_old_minus = y1_old;
+      {
 
-    }
-    pixelold[x] = y_new;
-  } // end for loop
-      display.display(spectrum_y,spectrum_y + spectrum_height);
+        // DELETE OLD LINE/POINT
+        if (y1_old - y1_old_minus > 1)
+        { // plot line upwards
+          display.drawFastVLine(x + spectrum_x, y1_old_minus + 1, y1_old - y1_old_minus, SPECTRUM_DELETE_COLOUR);
+        }
+        else if (y1_old - y1_old_minus < -1)
+        { // plot line downwards
+          display.drawFastVLine(x + spectrum_x, y1_old, y1_old_minus - y1_old, SPECTRUM_DELETE_COLOUR);
+        }
+        else
+        {
+          display.drawPixel(x + spectrum_x, y1_old, SPECTRUM_DELETE_COLOUR); // delete old pixel
+        }
+
+        // DRAW NEW LINE/POINT
+        if (y1_new - y1_new_minus > 1)
+
+        { // plot line upwards
+          display.drawFastVLine(x + spectrum_x, y1_new_minus + 1, y1_new - y1_new_minus, SPECTRUM_DRAW_COLOUR);
+        }
+        else if (y1_new - y1_new_minus < -1)
+        { // plot line downwards
+          display.drawFastVLine(x + spectrum_x, y1_new, y1_new_minus - y1_new, SPECTRUM_DRAW_COLOUR);
+        }
+        else
+        {
+          display.drawPixel(x + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR); // write new pixel
+        }
+
+        y1_new_minus = y1_new;
+        y1_old_minus = y1_old;
+
+      }
+      pixelold[x] = y_new;
+    } // end for loop
+    display.display(spectrum_y, spectrum_y + spectrum_height);
   }
 }
+#else
+void show_spectrum(void)
+{
+  static int counter = 0;
+  int16_t y_new, y1_new;
+  int16_t y1_new_minus = 0;
+
+  counter++;
+  if (counter == 25)
+  {
+    counter = 0;
+    
+    arm_rfft_q15(&FFT, FFT_buffer2, FFT_buffer);
+    
+    display.fillRect(0, spectrum_y, display.width(), spectrum_y+spectrum_height, 0);
+    for (int16_t x = 0; x < 127; x++)
+    {
+      pixelnew[x] = abs(FFT_buffer[127 - x]) / 200;
+
+      if ((x > 1) && (x < 127))
+        // moving window - weighted average of 5 points of the spectrum to smooth spectrum in the frequency domain
+        // weights:  x: 50% , x-1/x+1: 36%, x+2/x-2: 14%
+      {
+        if (0)
+        {
+          y_new = pixelnew[x] * 0.5 + pixelnew[x - 1] * 0.18 + pixelnew[x + 1] * 0.18 + pixelnew[x - 2] * 0.07 + pixelnew[x + 2] * 0.07;
+        }
+        else
+        {
+          y_new = pixelnew[x];
+        }
+      }
+      else
+      {
+        y_new = pixelnew[x];
+      }
+
+
+      if (y_new > (spectrum_height))
+      {
+        y_new = (spectrum_height);
+      }
+      y1_new  = (spectrum_y + spectrum_height - 1) - y_new;
+
+      if (x == 0)
+      {
+        y1_new_minus = y1_new;
+      }
+      if (x == 127)
+      {
+        y1_new_minus = y1_new;
+      }
+
+      {
+
+        // DRAW NEW LINE/POINT
+        if (y1_new - y1_new_minus > 1)
+
+        { // plot line upwards
+          display.drawFastVLine(x + spectrum_x, y1_new_minus + 1, y1_new - y1_new_minus, SPECTRUM_DRAW_COLOUR);
+        }
+        else if (y1_new - y1_new_minus < -1)
+        { // plot line downwards
+          display.drawFastVLine(x + spectrum_x, y1_new, y1_new_minus - y1_new, SPECTRUM_DRAW_COLOUR);
+        }
+        else
+        {
+          display.drawPixel(x + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR); // write new pixel
+        }
+
+        y1_new_minus = y1_new;
+
+      }
+    } // end for loop
+    display.display(spectrum_y, spectrum_y + spectrum_height);
+  }
+}
+#endif

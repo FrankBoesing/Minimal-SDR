@@ -205,7 +205,7 @@ void Adafruit_SSD1306::begin(uint8_t vccstate, uint8_t i2caddr, bool reset) {
   else
   {
     // I2C Init
-    Wire.begin();
+     Wire.begin();
 #ifdef __SAM3X8E__
     // Force 400 KHz I2C, rawr! (Uses pins 20, 21 for SDA, SCL)
     TWI1->TWI_CWGR = 0;
@@ -325,10 +325,11 @@ void Adafruit_SSD1306::ssd1306_command(uint8_t c) {
   else
   {
     // I2C
-    uint8_t control = 0x00;   // Co = 0, D/C = 0
+    uint8_t control[2] = {0x00, c};   // Co = 0, D/C = 0
     Wire.beginTransmission(_i2caddr);
-    Wire.write(control);
-    Wire.write(c);
+    //Wire.write(control);
+    //Wire.write(c);
+		Wire.write(control,2);
     Wire.endTransmission();
   }
 }
@@ -491,7 +492,6 @@ void Adafruit_SSD1306::display(int fromline, int toline) {
   ssd1306_command(SSD1306_COLUMNADDR);
   ssd1306_command(fromline * SSD1306_LCDWIDTH / 8);   // Column start address (0 = reset)
   ssd1306_command(SSD1306_LCDWIDTH-1); // Column end address (127 = reset)
-
   ssd1306_command(SSD1306_PAGEADDR);
   ssd1306_command(0); // Page start address (0 = reset)
   #if SSD1306_LCDHEIGHT == 64
@@ -505,14 +505,18 @@ void Adafruit_SSD1306::display(int fromline, int toline) {
   #endif
 
     // I2C
-		const int chunk = min(256, (fromline+toline) * SSD1306_LCDWIDTH / 8) ;
-    for (uint16_t i= fromline * SSD1306_LCDWIDTH / 8; i< toline * SSD1306_LCDWIDTH / 8; i+=chunk) {
-      // send a bunch of data in one xmission
+		
+		uint16_t i = fromline * SSD1306_LCDWIDTH / 8;
+		uint16_t size = (fromline+toline) * SSD1306_LCDWIDTH / 8;
+		do {			
       Wire.beginTransmission(_i2caddr);
       WIRE_WRITE(0x40);
-			Wire.write(&buffer[i],chunk);		
-      Wire.endTransmission();
-    }
+			int chunk = min(256, size) ;
+			Wire.write(&buffer[i],chunk);					
+			i += chunk;
+			size -= chunk;
+      Wire.endTransmission();			
+		} while (size>0);
 
   
 }
