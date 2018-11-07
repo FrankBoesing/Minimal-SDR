@@ -43,9 +43,6 @@
 
 *********************************************************************/
 
-//ToDo:
-//small Spectrum display using FFT128
-
 /********************************************************************/
 #include "stations.h"
 #include <util/crc16.h>
@@ -74,9 +71,9 @@ AudioConnection          patchCord4(biquad2_dac, amp_dac);
 AudioConnection          patchCord5(amp_dac, dac1);
 
 
-#define I2C_SPEED   2000000
-#define OLED_I2CADR 0x3C    //Adafruit: 0x3D
-#define OLED_RESET  255
+#define I2C_SPEED       2100000
+#define OLED_I2CADR     0x3C    //Adafruit: 0x3D
+#define OLED_RESET      255
 
 #if (SSD1306_LCDHEIGHT != 64)
 #error("Height incorrect, please fix Adafruit_SSD1306.h!");
@@ -84,9 +81,7 @@ AudioConnection          patchCord5(amp_dac, dac1);
 
 Adafruit_SSD1306 display(OLED_RESET);
 
-
 #define AUDIOMEMORY     20
-
 #define _IF             6000        // intermediate frequency
 #define SAMPLE_RATE     (_IF * 4)   // new Audio-Library sample rate
 #define CORR_FACT       (AUDIO_SAMPLE_RATE_EXACT / SAMPLE_RATE) // Audio-Library correction factor
@@ -94,19 +89,16 @@ Adafruit_SSD1306 display(OLED_RESET);
 #define I2S_FREQ_MAX    36000000
 #define I2S0_TCR2_DIV   0
 
-#define PIH             PI / 2
-#define TPI             PI * 2
-
-
-const char sdrname[] = "Mini - SDR";
+const char sdrname[]  = "Mini - SDR";
 //int mode             = SYNCAM;
-int mode             = AM;
-uint8_t ANR_on       = 0;         // off: 0, automatic notch filter:1, automatic noise reduction: 2
-uint8_t AGC_on       = 1;         // automatic gain control ON/OFF
-float AGC_val        = 0.25;       // agc actual value
+int mode              = AM;
+uint8_t ANR_on        = 0;         // off: 0, automatic notch filter:1, automatic noise reduction: 2
+uint8_t AGC_on        = 1;         // automatic gain control ON/OFF
+const float AGC_start = 0.25;
+float AGC_val         = AGC_start;      // agc actual value
 
-uint8_t clk_errcmp   = 0;       // en-/disable clk-error compensation
-int input            = 0;
+uint8_t clk_errcmp    = 1;       // en-/disable clk-error compensation
+int input             = 0;
 float freq;
 settings_t settings;
 
@@ -114,6 +106,7 @@ unsigned long time_needed     = 0;
 unsigned long time_needed_max = 0;
 
 unsigned long demodulation(void);
+
 
 uint16_t filter_bandwidth = 3500;
 const uint32_t FIR_AM_num_taps = 66;
@@ -123,27 +116,23 @@ arm_fir_instance_q15 FIR_Q;
 q15_t FIR_I_state [FIR_SSB_num_taps + AUDIO_BLOCK_SAMPLES];
 q15_t FIR_Q_state [FIR_SSB_num_taps + AUDIO_BLOCK_SAMPLES];
 int16_t FIR_AM_coeffs[FIR_AM_num_taps];
+
 //int16_t FIR_I_coeffs[FIR_num_taps];
 //int16_t FIR_Q_coeffs[FIR_num_taps];
+
 // +45°, 86 taps, Fc=1.33kHz, BW=1.92kHz, Kaiser beta = 1.8, raised cosine 0.88
 const int16_t FIR_I_coeffs[FIR_SSB_num_taps] = { -3, -16, -33, -52, -63, -63, -48, -25, -5, -4, -30, -85, -157, -221, -253, -233, -163, -66, 17, 41, -20, -164, -349, -506, -561, -468, -231, 83, 365, 496, 395, 65, -392, -791, -915, -586, 264, 1549, 3035, 4388, 5262, 5400, 4710, 3298, 1448, -458, -2043, -3030, -3312, -2964, -2203, -1314, -559, -108, -8, -185, -496, -780, -922, -878, -676, -399, -141, 25, 72, 16, -93, -196, -250, -237, -167, -72, 15, 68, 80, 57, 18, -17, -36, -35, -19, 3, 21, 29, 28, 20};
 // -45°, 86 taps, Fc=1.33kHz, BW=1.92kHz, Kaiser beta = 1.8, raised cosine 0.88
 const int16_t FIR_Q_coeffs[FIR_SSB_num_taps] = {20, 28, 29, 21, 3, -19, -35, -36, -17, 18, 57, 80, 68, 15, -72, -167, -237, -250, -196, -93, 16, 72, 25, -141, -399, -676, -878, -922, -780, -496, -185, -8, -108, -559, -1314, -2203, -2964, -3312, -3030, -2043, -458, 1448, 3298, 4710, 5400, 5262, 4388, 3035, 1549, 264, -586, -915, -791, -392, 65, 395, 496, 365, 83, -231, -468, -561, -506, -349, -164, -20, 41, 17, -66, -163, -233, -253, -221, -157, -85, -30, -4, -5, -25, -48, -63, -63, -52, -33, -16, -3};
+
 // AM, 66 taps, cutoff = 4kHz, 24ksps sample rate
 //const int16_t FIR_AM_coeffs[FIR_AM_num_taps] = {-2,8,22,24,-2,-39,-44,10,77,72,-33,-141,-106,82,234,135,-177,-367,-146,337,544,113,-610,-788,4,1088,1155,-327,-2125,-1949,1486,6886,10973,10973,6886,1486,-1949,-2125,-327,1155,1088,4,-788,-610,113,544,337,-146,-367,-177,135,234,82,-106,-141,-33,72,77,10,-44,-39,-2,24,22,8,-2};
-
 // narrow filters for CW (morse signals) and digital signals (DCF77 etc.)
 // centre your signal of interest at 800Hz !!!
 // +45°, 86 taps, Fc=800Hz, BW=400Hz, Kaiser beta = 1.8, raised cosine 0.88
 //const int16_t FIR_I_coeffs[FIR_SSB_num_taps] = {6,1,-5,-12,-18,-22,-24,-21,-14,-3,12,29,44,54,54,41,11,-40,-112,-204,-314,-435,-558,-673,-769,-832,-851,-818,-724,-567,-349,-77,236,575,919,1247,1537,1767,1920,1983,1949,1817,1593,1290,925,521,103,-306,-680,-1000,-1250,-1419,-1504,-1505,-1431,-1294,-1108,-891,-660,-432,-222,-39,107,215,283,315,315,292,252,204,153,106,66,35,14,3,-1,2,8,15,21,26,29,29,27,23};
 // -45°, 86 taps, Fc=800Hz, BW=400Hz, Kaiser beta = 1.8, raised cosine 0.88
 //const int16_t FIR_Q_coeffs[FIR_SSB_num_taps] = {23,27,29,29,26,21,15,8,2,-1,3,14,35,66,106,153,204,252,292,315,315,283,215,107,-39,-222,-432,-660,-891,-1108,-1294,-1431,-1505,-1504,-1419,-1250,-1000,-680,-306,103,521,925,1290,1593,1817,1949,1983,1920,1767,1537,1247,919,575,236,-77,-349,-567,-724,-818,-851,-832,-769,-673,-558,-435,-314,-204,-112,-40,11,41,54,54,44,29,12,-3,-14,-21,-24,-22,-18,-12,-5,1,6};
-
-
-// FFT with 128 points
-int16_t FFT_buffer [256];
-int16_t FFT_buffer2 [128];
-arm_rfft_instance_q15 FFT;
 
 
 //-------------------------------------------------------
@@ -232,7 +221,7 @@ void showFreq(void)
   display.fillRect(56, 20 + 3 * 8, 4 * 8, 8, 0);
   if (ANR_on == 1) display.println("Notch");
   else if (ANR_on == 2) display.println("Noise");
-#endif 
+#endif
 
   display.setCursor(0, 20 + 4 * 8);
   display.fillRect(0, 20 + 4 * 8, display.width(), 8, 0);
@@ -390,8 +379,8 @@ void tune(float freq) {
   pdb_freq_actual = setPDB_freq(pdb_freq);
 
   showFreq();
-  biquad2_dac.setNotch(0, pdb_freq_actual / 8.0 * CORR_FACT, 15.0); // eliminates some birdy
-  resetSYNCAM();
+  init_FIR();
+  biquad2_dac.setNotch(0, pdb_freq_actual / 8.0 * CORR_FACT, 15.0); // eliminates some birdy  
 
 #if 1
   Serial.printf("Tune: %.1fkHz\n", freq / 1000);
@@ -418,7 +407,6 @@ void setup()   {
 
   initEEPROM();
   initI2S();
-
 
   display.begin(SSD1306_SWITCHCAPVCC, OLED_I2CADR);
   Wire.setClock(I2C_SPEED);
@@ -453,11 +441,11 @@ void setup()   {
   //biquad2_dac.setLowpass(2, cutoff_freq, 0.54);
   biquad2_dac.setNotch(0, SAMPLE_RATE / 8 * CORR_FACT, 15.0); // eliminates some birdy
 
-  amp_dac.gain(2.0); //amplifier before DAC
+  amp_dac.gain(1.0); //amplifier before DAC
 
-  calc_FIR_coeffs (FIR_AM_coeffs, FIR_AM_num_taps, (float32_t)filter_bandwidth, 70, 0, 0.0, (float32_t)SAMPLE_RATE);
+  calc_FIR_coeffs (FIR_AM_coeffs, FIR_AM_num_taps, (float32_t)filter_bandwidth, 70, 0, 0.0, (float32_t)SAMPLE_RATE*2);
   init_FIR();
-  arm_rfft_init_q15 (&FFT, 128, 0, 1);
+  init_Spectrum();
 
   AudioProcessorUsageMaxReset();
   loadLastSettings();
@@ -577,7 +565,6 @@ void serialUI(void) {
       tune(freq);
     }
   }
-  init_FIR();
 }
 
 //-------------------------------------------------------
@@ -591,68 +578,75 @@ void loop() {
 }
 
 //-------------------------------------------------------
-
-int16_t I_buffer[AUDIO_BLOCK_SAMPLES];
-int16_t Q_buffer[AUDIO_BLOCK_SAMPLES];
-int16_t I_buffer2[AUDIO_BLOCK_SAMPLES];
-int16_t Q_buffer2[AUDIO_BLOCK_SAMPLES];
-
-//AGC
 #define AGCBUF_SIZE 25 //One Entry per Audio Packet
-int16_t agc_buffer[AGCBUF_SIZE];
-int agc_idx = 0;
+void AGC(int16_t * block) {
 
+  if (!AGC_on) return;
 
+  static int16_t agc_buffer[AGCBUF_SIZE];
+  static int agc_idx = AGCBUF_SIZE;
 
-// SYNCAM:
-const float32_t omegaN = 400.0; // PLL is able to grab a carrier that is not more than omegaN Hz away
-const float32_t zeta = 0.45; // the higher, the faster the PLL, the lower, the more stable the carrier is grabbed
-const float32_t omega_min = 2.0 * PI * - 4000.0 / SAMPLE_RATE; // absolute minimum frequency the PLL can correct for
-const float32_t omega_max = 2.0 * PI * 4000.0 / SAMPLE_RATE; // absolute maximum frequency the PLL can correct for
-const float32_t g1 = 1.0 - exp(-2.0 * omegaN * zeta / SAMPLE_RATE); // used inside the algorithm
-const float32_t g2 = - g1 + 2.0 * (1 - exp(- omegaN * zeta / SAMPLE_RATE) * cosf(omegaN / SAMPLE_RATE * sqrtf(1.0 - zeta * zeta))); // used inside the algorithm
-float32_t fil_out = 0.0;
-float32_t omega2 = 0.0;
-float32_t phzerror = 0.0;
+  uint32_t data;
+  uint32_t * p;
+  p = (uint32_t *) block;
+  int minv = 32767;
+  int maxv = -minv;
 
-// LMS automatic notch filter
-#define ANR_DLINE_SIZE 512 //256 //512 //2048 funktioniert nicht, 128 & 256 OK                 // dline_size
-const int ANR_taps =     64; //64;                       // taps
-const int ANR_delay =    16; //16;                       // delay
-const int ANR_dline_size = ANR_DLINE_SIZE;
-const int ANR_buff_size = AUDIO_BLOCK_SAMPLES;
-//int ANR_position = 0;
-const float32_t ANR_two_mu =   0.001;   //0.0001                  // two_mu --> "gain"
-const float32_t ANR_gamma =    0.1;                      // gamma --> "leakage"
-float32_t ANR_lidx =     120.0;                      // lidx
-const float32_t ANR_lidx_min = 0.0;                      // lidx_min
-const float32_t ANR_lidx_max = 200.0;                      // lidx_max
-float32_t ANR_ngamma =   0.001;                      // ngamma
-const float32_t ANR_den_mult = 6.25e-10;                   // den_mult
-const float32_t ANR_lincr =    1.0;                      // lincr
-const float32_t ANR_ldecr =    3.0;                     // ldecr
-int ANR_mask = ANR_dline_size - 1;
-int ANR_in_idx = 0;
-float32_t ANR_d [ANR_DLINE_SIZE];
-float32_t ANR_w [ANR_DLINE_SIZE];
+  for (int i = 0; i < AUDIO_BLOCK_SAMPLES / 2; i++) {
+    data = *__SIMD32(p)++;// Load next two samples in a single access
+    (void)__SSUB16(maxv, data);// Parallel comparison of max and new samples
+    maxv = __SEL(maxv, data);   // Select max on each 16-bits half
+    (void)__SSUB16(data, minv);// Parallel comparison of new samples and min
+    minv = __SEL(minv, data);   // Select min on each 16-bits half
+  }
+  // Now we have maximum on even samples on low halfword of max
+  // and maximum on odd samples on high halfword
+  // look for max between halfwords 1 & 0 by comparing on low halfword
+  (void)__SSUB16(maxv, maxv >> 16);
+  maxv = __SEL(maxv, maxv >> 16);// Select max on low 16-bits
+  (void)__SSUB16(minv >> 16, minv);// look for min between halfwords 1 & 0 by comparing on low halfword
+  minv = __SEL(minv, minv >> 16);// Select min on low 16-bits
 
+  minv = abs(minv);
+  maxv = abs(maxv);
+  (void)__SSUB16(maxv, minv);
+  uint16_t absmax = __SEL(maxv, minv);
 
-void resetSYNCAM(void) {
-  fil_out = 0.0;
-  omega2 = 0.0;
-  phzerror = 0.0;
-}
+  agc_buffer[--agc_idx] = absmax;
+  if (agc_idx < 0) agc_idx = AGCBUF_SIZE;
 
-static inline __attribute__((always_inline)) int16_t abs16(int16_t val);
-int16_t abs16(int16_t val)
-{
-  int16_t result = -val;
-  if (result >= 0)
-    result -= (result >> 15);
-  else
-    result = val;
-  return result;
-}
+  int m = 0;
+  for (int i = 0; i < AGCBUF_SIZE; i++) m += agc_buffer[i];
+  int d = m / AGCBUF_SIZE;
+
+  const float x = 16000;
+  float f = x / d;
+  if (f > 1.3) {
+    AGC_val = AGC_val + (AGC_val * f / 1500);
+    amp_adc.gain(AGC_val);
+  }
+
+  else if (AGC_val > 0.1) {
+    if (f < 0.6) {
+      AGC_val = AGC_val - (AGC_val * f / 50);
+      amp_adc.gain(AGC_val);
+    }
+    else if (f < 0.7) {
+      AGC_val = AGC_val - (AGC_val * f / 200);
+      amp_adc.gain(AGC_val);
+    }
+    else if (f < 0.8) {
+      AGC_val = AGC_val - (AGC_val * f / 2000);
+      amp_adc.gain(AGC_val);
+    }
+    else if (f < 0.9) {
+      AGC_val = AGC_val - (AGC_val * f / 4000);
+      amp_adc.gain(AGC_val);
+    }
+  }
+
+} //AGC
+//-------------------------------------------------------
 
 unsigned long demodulation(void) {
 
@@ -661,133 +655,64 @@ unsigned long demodulation(void) {
 
   unsigned long time_start = micros();
 
-  /*
-      Read data from input queue
-      I/Q conversion
-  */
-
-  // frequency translation without multiplication
-  // multiply the signal from the ADC with a Cosine for I channel
-  // multiply the signal from the ADC with a Sine   for Q channel
-  // if IF == sample rate / 4,
-  // the Cosine is {1, 0, -1, 0, 1, 0, -1, 0 . . . .}
-  // and the Sine is {0, 1, 0, -1, 0, 1, 0, -1 . . . .}
   int16_t * p_adc;
   p_adc = queue_adc.readBuffer();
 
-#if 0
-  for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
-  {
-    FFT_buffer2[i] = p_adc[i];
-  }
-#else
-  memcpy (FFT_buffer2, p_adc, sizeof(FFT_buffer2));
-#endif
+  show_spectrum(p_adc);
+  AGC(p_adc);
 
-  int16_t min = 32767;
-  int16_t max = -32768;
+  /*
+     I/Q conversion
+     frequency translation without multiplication
+     - multiply the signal from the ADC with a Cosine for I channel
+     - multiply the signal from the ADC with a Sine   for Q channel
+     if IF == sample rate / 4,
+     the Cosine is {1, 0, -1, 0, 1, 0, -1, 0 . . . .}
+     and the Sine is {0, 1, 0, -1, 0, 1, 0, -1 . . . .}
+  */
+
+  int16_t I_buffer[AUDIO_BLOCK_SAMPLES];
+  int16_t Q_buffer[AUDIO_BLOCK_SAMPLES];
 
   for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
 
-    int16_t s0 = p_adc[i + 0];
-    int16_t s1 = p_adc[i + 1];
-    I_buffer[i]     = s0;
-    Q_buffer[i + 1] = s1;
-    uint32_t data = (((uint16_t)s0) << 16) | s1;
+    I_buffer[i]     = p_adc[i + 0];
+    I_buffer[i + 1] = 0;
+    I_buffer[i + 2] = - p_adc[i + 2];
+    I_buffer[i + 3] = 0;
 
-    (void)__SSUB16(max, data);// Parallel comparison of max and new samples
-    max = __SEL(max, data);   // Select max on each 16-bits half
-    (void)__SSUB16(data, min);// Parallel comparison of new samples and min
-    min = __SEL(min, data);   // Select min on each 16-bits half
+    Q_buffer[i + 0] = 0;
+    Q_buffer[i + 1] = p_adc[i + 1];
+    Q_buffer[i + 3] = - p_adc[i + 3];
+    Q_buffer[i + 2] = 0;
 
-    s0 = p_adc[i + 2];
-    s1 = p_adc[i + 3];
-    I_buffer[i + 2] = - s0;
-    Q_buffer[i + 3] = - s1;
-    data = (((uint16_t)s0) << 16) | s1;
-
-    (void)__SSUB16(max, data);
-    max = __SEL(max, data);
-    (void)__SSUB16(data, min);
-    min = __SEL(min, data);
-
-#if 1
-    I_buffer[i + 1] = I_buffer[i + 3] = 0;
-    Q_buffer[i + 0] = Q_buffer[i + 2] = 0;
-#endif
   }
+
   queue_adc.freeBuffer();
 
-    
-  // Now we have maximum on even samples on low halfword of max
-  // and maximum on odd samples on high halfword
-  // look for max between halfwords 1 & 0 by comparing on low halfword
-  (void)__SSUB16(max, max >> 16);
-  max = __SEL(max, max >> 16);// Select max on low 16-bits
-  (void)__SSUB16(min >> 16, min);// look for min between halfwords 1 & 0 by comparing on low halfword
-  min = __SEL(min, min >> 16);// Select min on low 16-bits
+  /*
+     Here, we have to filter separately the I & Q channel with a linear phase filter
+     so a FIR filter with symmetrical coefficients should be used
+     Do not use an IIR filter
+  */
+  {
+    q15_t I_FIR_out[AUDIO_BLOCK_SAMPLES];
+    q15_t Q_FIR_out[AUDIO_BLOCK_SAMPLES];
 
+    // arm_fir_q15(&FIR_I, I_buffer, I_buffer2, AUDIO_BLOCK_SAMPLES);
+    // arm_fir_q15(&FIR_Q, Q_buffer, Q_buffer2, AUDIO_BLOCK_SAMPLES);
+    arm_fir_fast_q15(&FIR_I, I_buffer, I_FIR_out, AUDIO_BLOCK_SAMPLES);
+    arm_fir_fast_q15(&FIR_Q, Q_buffer, Q_FIR_out, AUDIO_BLOCK_SAMPLES);
 
-  if (AGC_on) {
-    const int x = 16000;
-    min = abs16(min);
-    max = abs16(max);
-    (void)__SSUB16(max, min);
-    uint16_t absmax = __SEL(max, min);
-
-    agc_buffer[agc_idx++] = absmax;
-    if (agc_idx >= AGCBUF_SIZE) agc_idx = 0;
-
-    int m = 0;
-    for (int i = 0; i < AGCBUF_SIZE; i++) m += agc_buffer[i];
-    int d = m / AGCBUF_SIZE;
-
-    //  Serial.println(d);
-
-    float f = (float)x / d;
-    if (f > 1.3) {
-      AGC_val = AGC_val + (AGC_val * f / 1500);
-      amp_adc.gain(AGC_val);
-    }
-
-    else if (AGC_val > 0.1) {
-      if (f < 0.6) {
-        AGC_val = AGC_val - (AGC_val * f / 50);
-        amp_adc.gain(AGC_val);
-      }
-      else if (f < 0.7) {
-        AGC_val = AGC_val - (AGC_val * f / 200);
-        amp_adc.gain(AGC_val);
-      }
-      else if (f < 0.8) {
-        AGC_val = AGC_val - (AGC_val * f / 2000);
-        amp_adc.gain(AGC_val);
-      }
-      else if (f < 0.9) {
-        AGC_val = AGC_val - (AGC_val * f / 4000);
-        amp_adc.gain(AGC_val);
-      }
-    }
-    //Serial.println(AGC_val, 2);
+    //arm_copy_q15(I_FIR_out, I_buffer, AUDIO_BLOCK_SAMPLES);
+    //arm_copy_q15(Q_FIR_out, Q_buffer, AUDIO_BLOCK_SAMPLES);
+    memcpy(I_buffer, I_FIR_out, sizeof(I_buffer));
+    memcpy(Q_buffer, Q_FIR_out, sizeof(Q_buffer));
   }
-
-
-  // Here, we have to filter separately the I & Q channel with a linear phase filter
-  // so a FIR filter with symmetrical coefficients should be used
-  // Do not use an IIR filter
-
-  //      arm_fir_q15(&FIR_I, (q15_t *)I_buffer, (q15_t *)I_buffer2, AUDIO_BLOCK_SAMPLES);
-  //      arm_fir_q15(&FIR_Q, (q15_t *)Q_buffer, (q15_t *)Q_buffer2, AUDIO_BLOCK_SAMPLES);
-  arm_fir_fast_q15(&FIR_I, (q15_t *)I_buffer, (q15_t *)I_buffer2, AUDIO_BLOCK_SAMPLES);
-  arm_fir_fast_q15(&FIR_Q, (q15_t *)Q_buffer, (q15_t *)Q_buffer2, AUDIO_BLOCK_SAMPLES);
-
-  arm_copy_q15((q15_t *)I_buffer2, (q15_t *)I_buffer, AUDIO_BLOCK_SAMPLES);
-  arm_copy_q15((q15_t *)Q_buffer2, (q15_t *)Q_buffer, AUDIO_BLOCK_SAMPLES);
-
   /*
     - demodulation
-    - write data to output-qeue
   */
+
   int16_t * p_dac;
   p_dac = queue_dac.getBuffer();
 
@@ -833,6 +758,17 @@ unsigned long demodulation(void) {
         // synchronous AM demodulation - the one with the PLL ;-)
         // code adapted from the wdsp library by Warren Pratt, GNU GPLv3
 
+        // SYNCAM:
+        static const float32_t omegaN = 400.0; // PLL is able to grab a carrier that is not more than omegaN Hz away
+        static const float32_t zeta = 0.45; // the higher, the faster the PLL, the lower, the more stable the carrier is grabbed
+        static const float32_t omega_min = 2.0 * PI * - 4000.0 / SAMPLE_RATE; // absolute minimum frequency the PLL can correct for
+        static const float32_t omega_max = 2.0 * PI * 4000.0 / SAMPLE_RATE; // absolute maximum frequency the PLL can correct for
+        static const float32_t g1 = 1.0 - exp(-2.0 * omegaN * zeta / SAMPLE_RATE); // used inside the algorithm
+        static const float32_t g2 = - g1 + 2.0 * (1 - exp(- omegaN * zeta / SAMPLE_RATE) * cosf(omegaN / SAMPLE_RATE * sqrtf(1.0 - zeta * zeta))); // used inside the algorithm
+        static float32_t fil_out = 0.0f;
+        static float32_t omega2 = 0.0f;
+        static float32_t phzerror = 0.0f;
+
         float32_t ai;
         float32_t bi;
         float32_t aq;
@@ -840,12 +776,12 @@ unsigned long demodulation(void) {
         float32_t det;
         float32_t Sin;
         float32_t Cos;
-        float32_t audio;
         float32_t del_out;
         float32_t corr[2];
 
         for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
         {
+
           Sin = sinf(phzerror);
           Cos = cosf(phzerror);
           ai = Cos * I_buffer[i];
@@ -856,12 +792,12 @@ unsigned long demodulation(void) {
           corr[0] = +ai + bq;
           corr[1] = -bi + aq;
 
-          audio = corr[0];
-          p_dac[i] = audio;
+          p_dac[i] = corr[0];
 
-          // BEWARE: with a Teensy 3.2 in fixed point, this will really take a lot of time to calculate!
-          // use atan2 in that case
+          // BEWARE: with a Teensy 3.2, this will really take a lot of time to calculate!
+          // use a optimized atan2 in that case
           det = atan2f(corr[1], corr[0]);
+          //det = atan2(corr[1], corr[0]);
 
           del_out = fil_out;
           omega2 = omega2 + g2 * det;
@@ -891,6 +827,28 @@ unsigned long demodulation(void) {
   if (ANR_on > 0) {
     // variable leak LMS algorithm for automatic notch or noise reduction
     // (c) Warren Pratt wdsp library 2016
+
+    // LMS automatic notch filter
+#define ANR_DLINE_SIZE 512 //256 //512 //2048 funktioniert nicht, 128 & 256 OK                 // dline_size
+    static const int ANR_taps =     64; //64;                       // taps
+    static const int ANR_delay =    16; //16;                       // delay
+    static const int ANR_dline_size = ANR_DLINE_SIZE;
+    static const int ANR_buff_size = AUDIO_BLOCK_SAMPLES;
+    //static int ANR_position = 0;
+    static const float32_t ANR_two_mu =   0.001;   //0.0001                  // two_mu --> "gain"
+    static const float32_t ANR_gamma =    0.1;                      // gamma --> "leakage"
+    static float32_t ANR_lidx =     120.0;                      // lidx
+    static const float32_t ANR_lidx_min = 0.0;                      // lidx_min
+    static const float32_t ANR_lidx_max = 200.0;                      // lidx_max
+    static float32_t ANR_ngamma =   0.001;                      // ngamma
+    static const float32_t ANR_den_mult = 6.25e-10;                   // den_mult
+    static const float32_t ANR_lincr =    1.0;                      // lincr
+    static const float32_t ANR_ldecr =    3.0;                     // ldecr
+    static int ANR_mask = ANR_dline_size - 1;
+    static int ANR_in_idx = 0;
+    static float32_t ANR_d [ANR_DLINE_SIZE];
+    static float32_t ANR_w [ANR_DLINE_SIZE];
+
     int i, j, idx;
     float32_t c0, c1;
     float32_t y, error, sigma, inv_sigp;
@@ -935,15 +893,16 @@ unsigned long demodulation(void) {
       ANR_in_idx = (ANR_in_idx + ANR_mask) & ANR_mask;
     }
   }
-#endif  
+#endif
+
   queue_dac.playBuffer();
-
-  // this seems to take more cycles than the T3.2 can provide . . .
-  // display is much too slow
-  show_spectrum();
-
   return micros() - time_start;
 }
+
+//-------------------------------------------------------
+
+#define PIH             (PI / 2)
+#define TPI             (PI * 2)
 
 void calc_FIR_coeffs (int16_t* coeffs, int numCoeffs, float32_t fc, float32_t Astop, int type, float dfc, float Fsamprate)
 // pointer to coefficients variable, no. of coefficients to calculate, frequency where it happens, stopband attenuation in dB,
@@ -959,8 +918,10 @@ void calc_FIR_coeffs (int16_t* coeffs, int numCoeffs, float32_t fc, float32_t As
   float32_t izb;
   float fcf = fc;
   int nc = numCoeffs;
+
   fc = fc / Fsamprate;
   dfc = dfc / Fsamprate;
+
   // calculate Kaiser-Bessel window shape factor beta from stop-band attenuation
   if (Astop < 20.96)
     Beta = 0.0;
@@ -970,61 +931,84 @@ void calc_FIR_coeffs (int16_t* coeffs, int numCoeffs, float32_t fc, float32_t As
     Beta = 0.5842 * powf((Astop - 20.96), 0.4) + 0.07886 * (Astop - 20.96);
 
   izb = Izero (Beta);
-  if (type == 0) // low pass filter
-    //     {  fcf = fc;
-  { fcf = fc * 2.0;
-    nc =  numCoeffs;
-  }
-  else if (type == 1) // high-pass filter
-  { fcf = -fc;
-    nc =  2 * (numCoeffs / 2);
-  }
-  else if ((type == 2) || (type == 3)) // band-pass filter
-  {
-    fcf = dfc;
-    nc =  2 * (numCoeffs / 2); // maybe not needed
-  }
-  else if (type == 4) // Hilbert transform
-  {
-    nc =  2 * (numCoeffs / 2);
-    // clear coefficients
-    for (ii = 0; ii < 2 * (nc - 1); ii++) coeffs[ii] = 0;
-    // set real delay
-    coeffs[nc] = 1;
 
-    // set imaginary Hilbert coefficients
-    for (ii = 1; ii < (nc + 1); ii += 2)
-    {
-      if (2 * ii == nc) continue;
-      float x = (float)(2 * ii - nc) / (float)nc;
-      float w = Izero(Beta * sqrtf(1.0f - x * x)) / izb; // Kaiser window
-      coeffs[2 * ii + 1] = 32767 * (1.0f / (PIH * (float)(ii - nc / 2)) * w) ;
-    }
-    return;
+  switch (type) {
+
+    case 0:  // low pass filter
+      fcf = fc * 2.0;
+      nc =  numCoeffs;
+      break;
+
+    case 1:  // high-pass filter
+      fcf = -fc;
+      nc =  2 * (numCoeffs / 2);
+      break;
+
+    case 2:
+    case 3: // band-pass filter
+      fcf = dfc;
+      nc =  2 * (numCoeffs / 2); // maybe not needed
+      break;
+
+    case 4:  // Hilbert transform
+      {
+        nc =  2 * (numCoeffs / 2);
+        // clear coefficients
+        for (ii = 0; ii < 2 * (nc - 1); ii++) coeffs[ii] = 0;
+        // set real delay
+        coeffs[nc] = 1;
+
+        // set imaginary Hilbert coefficients
+        for (ii = 1; ii < (nc + 1); ii += 2)
+        {
+          if (2 * ii == nc) continue;
+          float x = (float)(2 * ii - nc) / (float)nc;
+          float w = Izero(Beta * sqrtf(1.0f - x * x)) / izb; // Kaiser window
+          coeffs[2 * ii + 1] = 32767 * (1.0f / (PIH * (float)(ii - nc / 2)) * w) ;
+        }
+        return;
+      }
+    default:
+      return;
   }
-  float32_t test;
+
   for (ii = - nc, jj = 0; ii < nc; ii += 2, jj++)
   {
     float x = (float)ii / (float)nc;
     float w = Izero(Beta * sqrtf(1.0f - x * x)) / izb; // Kaiser window
     coeffs[jj] = fcf * m_sinc(ii, fcf) * w * 32767;
-
   }
 
-  if (type == 1)
-  {
-    coeffs[nc / 2] += 1;
-  }
-  else if (type == 2)
-  {
-    for (jj = 0; jj < nc + 1; jj++) coeffs[jj] *= 2.0f * cosf(PIH * (2 * jj - nc) * fc);
-  }
-  else if (type == 3)
-  {
-    for (jj = 0; jj < nc + 1; jj++) coeffs[jj] *= -2.0f * cosf(PIH * (2 * jj - nc) * fc);
-    coeffs[nc / 2] += 1;
-  }
+  switch (type) {
 
+    case 1:
+      coeffs[nc / 2] += 1;
+      break;
+
+    case 2:
+      for (jj = 0; jj < nc + 1; jj++) coeffs[jj] *= 2.0f * cosf(PIH * (2 * jj - nc) * fc);
+      break;
+
+    case 3:
+      for (jj = 0; jj < nc + 1; jj++) coeffs[jj] *= -2.0f * cosf(PIH * (2 * jj - nc) * fc);
+      coeffs[nc / 2] += 1;
+      break;
+  };
+  /*
+    if (type == 1)
+    {
+      coeffs[nc / 2] += 1;
+    }
+    else if (type == 2)
+    {
+      for (jj = 0; jj < nc + 1; jj++) coeffs[jj] *= 2.0f * cosf(PIH * (2 * jj - nc) * fc);
+    }
+    else if (type == 3)
+    {
+      for (jj = 0; jj < nc + 1; jj++) coeffs[jj] *= -2.0f * cosf(PIH * (2 * jj - nc) * fc);
+      coeffs[nc / 2] += 1;
+    }
+  */
 } // END calc_FIR_coeffs
 
 float m_sinc(int m, float fc)
@@ -1060,139 +1044,42 @@ float32_t Izero (float32_t x)
 void init_FIR(void) {
   switch (mode) {
     case USB:
-      arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
-      arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
     case LSB:
       arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
       arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
       break;
     case AM:
-      arm_fir_init_q15(&FIR_I, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
-      arm_fir_init_q15(&FIR_Q, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
     case SYNCAM:
       arm_fir_init_q15(&FIR_I, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
       arm_fir_init_q15(&FIR_Q, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
-    default:
       break;
   }
 }
 
-int16_t pixelnew[128];
+//-------------------------------------------------------
 
-const int16_t spectrum_height = 16;
-const int16_t spectrum_y = 0;
-const int16_t spectrum_x = 0;
+arm_rfft_instance_q15 FFT;
+
+void init_Spectrum(void) {
+  arm_rfft_init_q15 (&FFT, 128, 0, 1);
+}
+
+void show_spectrum(int16_t * data)
+{
 #define SPECTRUM_DELETE_COLOUR BLACK
 #define SPECTRUM_DRAW_COLOUR WHITE
 
-#if 0
-int16_t pixelold[128];
-void show_spectrum(void)
-{
+  static const int16_t spectrum_height = 16;
+  static const int16_t spectrum_y = 0;
+  static const int16_t spectrum_x = 0;
+
+  // FFT with 128 points
+  int16_t FFT_out [128];
+  int16_t FFT_in [128];
+
   static int counter = 0;
-  int16_t y_old, y_new, y1_new, y1_old;
-  int16_t y1_old_minus = 0;
-  int16_t y1_new_minus = 0;
 
-  counter++;
-  if (counter == 25)
-  {
-    counter = 0;
-    arm_rfft_q15(&FFT, FFT_buffer2, FFT_buffer);
-  
-    for (int16_t x = 0; x < 127; x++)
-    {
-      pixelnew[x] = abs(FFT_buffer[127 - x]) / 200;
-
-      if ((x > 1) && (x < 127))
-        // moving window - weighted average of 5 points of the spectrum to smooth spectrum in the frequency domain
-        // weights:  x: 50% , x-1/x+1: 36%, x+2/x-2: 14%
-      {
-        if (0)
-        {
-          y_new = pixelnew[x] * 0.5 + pixelnew[x - 1] * 0.18 + pixelnew[x + 1] * 0.18 + pixelnew[x - 2] * 0.07 + pixelnew[x + 2] * 0.07;
-          y_old = pixelold[x] * 0.5 + pixelold[x - 1] * 0.18 + pixelold[x + 1] * 0.18 + pixelold[x - 2] * 0.07 + pixelold[x + 2] * 0.07;
-        }
-        else
-        {
-          y_new = pixelnew[x];
-          y_old = pixelold[x];
-        }
-      }
-      else
-      {
-        y_new = pixelnew[x];
-        y_old = pixelold[x];
-      }
-
-
-      if (y_old > (spectrum_height))
-      {
-        y_old = (spectrum_height);
-      }
-
-      if (y_new > (spectrum_height))
-      {
-        y_new = (spectrum_height);
-      }
-      y1_old  = (spectrum_y + spectrum_height - 1) - y_old;
-      y1_new  = (spectrum_y + spectrum_height - 1) - y_new;
-
-      if (x == 0)
-      {
-        y1_old_minus = y1_old;
-        y1_new_minus = y1_new;
-      }
-      if (x == 127)
-      {
-        y1_old_minus = y1_old;
-        y1_new_minus = y1_new;
-      }
-
-      {
-
-        // DELETE OLD LINE/POINT
-        if (y1_old - y1_old_minus > 1)
-        { // plot line upwards
-          display.drawFastVLine(x + spectrum_x, y1_old_minus + 1, y1_old - y1_old_minus, SPECTRUM_DELETE_COLOUR);
-        }
-        else if (y1_old - y1_old_minus < -1)
-        { // plot line downwards
-          display.drawFastVLine(x + spectrum_x, y1_old, y1_old_minus - y1_old, SPECTRUM_DELETE_COLOUR);
-        }
-        else
-        {
-          display.drawPixel(x + spectrum_x, y1_old, SPECTRUM_DELETE_COLOUR); // delete old pixel
-        }
-
-        // DRAW NEW LINE/POINT
-        if (y1_new - y1_new_minus > 1)
-
-        { // plot line upwards
-          display.drawFastVLine(x + spectrum_x, y1_new_minus + 1, y1_new - y1_new_minus, SPECTRUM_DRAW_COLOUR);
-        }
-        else if (y1_new - y1_new_minus < -1)
-        { // plot line downwards
-          display.drawFastVLine(x + spectrum_x, y1_new, y1_new_minus - y1_new, SPECTRUM_DRAW_COLOUR);
-        }
-        else
-        {
-          display.drawPixel(x + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR); // write new pixel
-        }
-
-        y1_new_minus = y1_new;
-        y1_old_minus = y1_old;
-
-      }
-      pixelold[x] = y_new;
-    } // end for loop
-    display.display(spectrum_y, spectrum_y + spectrum_height);
-  }
-}
-#else
-void show_spectrum(void)
-{
-  static int counter = 0;
+  int16_t pixelnew[128];
   int16_t y_new, y1_new;
   int16_t y1_new_minus = 0;
 
@@ -1200,13 +1087,14 @@ void show_spectrum(void)
   if (counter == 25)
   {
     counter = 0;
-    
-    arm_rfft_q15(&FFT, FFT_buffer2, FFT_buffer);
-    
-    display.fillRect(0, spectrum_y, display.width(), spectrum_y+spectrum_height, 0);
+    memcpy(FFT_in, data, sizeof(FFT_in));
+    arm_rfft_q15(&FFT, FFT_in, FFT_out);
+
+    display.fillRect(0, spectrum_y, display.width(), spectrum_y + spectrum_height, SPECTRUM_DELETE_COLOUR);
+
     for (int16_t x = 0; x < 127; x++)
     {
-      pixelnew[x] = abs(FFT_buffer[127 - x]) / 200;
+      pixelnew[x] = abs(FFT_out[127 - x]) / 200;
 
       if ((x > 1) && (x < 127))
         // moving window - weighted average of 5 points of the spectrum to smooth spectrum in the frequency domain
@@ -1246,7 +1134,6 @@ void show_spectrum(void)
 
         // DRAW NEW LINE/POINT
         if (y1_new - y1_new_minus > 1)
-
         { // plot line upwards
           display.drawFastVLine(x + spectrum_x, y1_new_minus + 1, y1_new - y1_new_minus, SPECTRUM_DRAW_COLOUR);
         }
@@ -1266,4 +1153,3 @@ void show_spectrum(void)
     display.display(spectrum_y, spectrum_y + spectrum_height);
   }
 }
-#endif
