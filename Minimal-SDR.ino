@@ -107,14 +107,14 @@ unsigned long time_needed_max = 0;
 
 unsigned long demodulation(void);
 
-
-uint16_t filter_bandwidth = 3500;
-const uint32_t FIR_AM_num_taps = 66;
+uint16_t filter_bandwidth = 2800;
+const uint32_t FIR_AM_num_taps = 102;
 const uint32_t FIR_SSB_num_taps = 86;
+const uint32_t MAX_num_taps = FIR_AM_num_taps > FIR_SSB_num_taps? FIR_AM_num_taps : FIR_SSB_num_taps;
 arm_fir_instance_q15 FIR_I;
 arm_fir_instance_q15 FIR_Q;
-q15_t FIR_I_state [FIR_SSB_num_taps + AUDIO_BLOCK_SAMPLES];
-q15_t FIR_Q_state [FIR_SSB_num_taps + AUDIO_BLOCK_SAMPLES];
+q15_t FIR_I_state [MAX_num_taps + AUDIO_BLOCK_SAMPLES];
+q15_t FIR_Q_state [MAX_num_taps + AUDIO_BLOCK_SAMPLES];
 int16_t FIR_AM_coeffs[FIR_AM_num_taps];
 
 //int16_t FIR_I_coeffs[FIR_num_taps];
@@ -443,7 +443,7 @@ void setup()   {
 
   amp_dac.gain(1.0); //amplifier before DAC
 
-  calc_FIR_coeffs (FIR_AM_coeffs, FIR_AM_num_taps, (float32_t)filter_bandwidth, 70, 0, 0.0, (float32_t)SAMPLE_RATE*2);
+  calc_FIR_coeffs (FIR_AM_coeffs, FIR_AM_num_taps, (float32_t)filter_bandwidth, 70, 0, 0.0, (float32_t)SAMPLE_RATE);
   init_FIR();
   init_Spectrum();
 
@@ -1044,12 +1044,23 @@ float32_t Izero (float32_t x)
 void init_FIR(void) {
   switch (mode) {
     case USB:
+      arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
+      arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
+      break;
     case LSB:
       arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
       arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
       break;
+
     case AM:
+      arm_fir_init_q15(&FIR_I, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
+      arm_fir_init_q15(&FIR_Q, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
+      break;
     case SYNCAM:
+      arm_fir_init_q15(&FIR_I, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
+      arm_fir_init_q15(&FIR_Q, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
+      break;
+    default:
       arm_fir_init_q15(&FIR_I, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
       arm_fir_init_q15(&FIR_Q, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
       break;
