@@ -1,4 +1,20 @@
 /*********************************************************************
+
+ Adafruit_SSD1306 - heavily modified to use the faster i2c_t3 library
+ by nox : https://github.com/nox771/i2c_t3
+ 
+ Added True Type font capability, taken from ILI9341_t3 library
+ by Paul Stoffregen: https://github.com/PaulStoffregen/ILI9341_t3
+
+ Added some additional functions.
+ Frank Bösing, 11/2108
+ 
+ Attention: 
+	- Works with I2C Displays only!
+	- Works with Teensy 3.x only!
+ 
+*/
+/*********************************************************************
 This is a library for our Monochrome OLEDs based on SSD1306 drivers
 
   Pick one up today in the adafruit shop!
@@ -143,7 +159,7 @@ void Adafruit_SSD1306::drawPixel(int16_t x, int16_t y, uint16_t color) {
 
 }
 
-int Adafruit_SSD1306::readPixel(int x, int y) {
+int Adafruit_SSD1306::readPixel(int x, int y) { //FB
 #if 0	
   // check rotation, move pixel around if necessary
   switch (getRotation()) {
@@ -235,7 +251,7 @@ void Adafruit_SSD1306::begin(uint8_t vccstate, uint8_t i2caddr, bool reset) {
 #endif
 #if defined(__arm__) && defined(TEENSYDUINO)
 		Wire.setOpMode(I2C_OP_MODE_DMA);
-    Wire.setClock(400000);
+    Wire.setClock(1000000); //1 MHz
 #endif
   }
   if ((reset) && (rst >= 0)) {
@@ -485,15 +501,7 @@ void Adafruit_SSD1306::display(void) {
 #endif
   }
   else
-  {
-    // save I2C bitrate
-#ifdef TWBR
-    uint8_t twbrbackup = TWBR;
-    TWBR = 12; // upgrade to 400KHz!
-#endif
-
-    //Serial.println(TWBR, DEC);
-    //Serial.println(TWSR & 0x3, DEC);
+  {		
 
     // I2C
 		uint16_t i = 0;
@@ -506,12 +514,9 @@ void Adafruit_SSD1306::display(void) {
 			Wire.write(&buffer[i],chunk);	
 			Wire.sendTransmission(I2C_STOP);			
 			i += chunk;
-			size -= chunk;
-     // Wire.endTransmission();			
+			size -= chunk;		
 		} while (size>0);
-#ifdef TWBR
-    TWBR = twbrbackup;
-#endif
+
   }
 }
 
@@ -534,8 +539,31 @@ void Adafruit_SSD1306::display(int toline) { //FB - nur durch 8 teilbare Startze
     ssd1306_command(1); // Page end address
   #endif
 
+  if (sid != -1)
+  {
+    // SPI
+#ifdef HAVE_PORTREG
+    *csport |= cspinmask;
+    *dcport |= dcpinmask;
+    *csport &= ~cspinmask;
+#else
+    digitalWrite(cs, HIGH);
+    digitalWrite(dc, HIGH);
+    digitalWrite(cs, LOW);
+#endif
+
+    for (uint16_t i=0; i<(SSD1306_LCDWIDTH*SSD1306_LCDHEIGHT/8); i++) {
+      fastSPIwrite(buffer[i]);
+    }
+#ifdef HAVE_PORTREG
+    *csport |= cspinmask;
+#else
+    digitalWrite(cs, HIGH);
+#endif
+  }
+  else
+  {	
     // I2C
-		
 		uint16_t i = 0;
 		uint16_t size = toline * SSD1306_LCDWIDTH / 8;
 		do {			
@@ -546,10 +574,9 @@ void Adafruit_SSD1306::display(int toline) { //FB - nur durch 8 teilbare Startze
 			Wire.write(&buffer[i],chunk);	
 			Wire.sendTransmission(I2C_STOP);			
 			i += chunk;
-			size -= chunk;
-     // Wire.endTransmission();			
+			size -= chunk;	
 		} while (size>0);
-
+	}
   
 }
 

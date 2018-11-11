@@ -1,4 +1,20 @@
- /*********************************************************************
+/*********************************************************************
+
+ Adafruit_SSD1306 - heavily modified to use the faster i2c_t3 library
+ by nox : https://github.com/nox771/i2c_t3
+ 
+ Added True Type font capability, taken from ILI9341_t3 library
+ by Paul Stoffregen: https://github.com/PaulStoffregen/ILI9341_t3
+
+ Added some additional functions.
+ Frank Bösing, 11/2108
+ 
+ Attention: 
+	- Works with I2C Displays only!
+	- Works with Teensy 3.x only!
+ 
+*/ 
+/*********************************************************************
 This is a library for our Monochrome OLEDs based on SSD1306 drivers
 
   Pick one up today in the adafruit shop!
