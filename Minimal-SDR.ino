@@ -46,12 +46,11 @@
 /********************************************************************/
 #include "stations.h"
 #include <util/crc16.h>
-#include <Adafruit_GFX.h>
-#include <i2c_t3.h>
+#include "ui.h"
 #include "src/CMSIS_5/arm_math.h"
 #include "src/CMSIS_5/arm_const_structs.h"
-#include "src/Adafruit_SSD1306/Adafruit_SSD1306.h"
 #include "src/Audio/Audio.h"
+
 
 AudioInputAnalog         adc1;           //xy=429,313
 AudioAmplifier           amp_adc;           //xy=583,313
@@ -70,17 +69,6 @@ AudioConnection          patchCord4a(biquad1_dac, biquad2_dac);
 AudioConnection          patchCord4(biquad2_dac, amp_dac);
 AudioConnection          patchCord5(amp_dac, dac1);
 
-
-#define I2C_SPEED       2100000
-#define OLED_I2CADR     0x3C    //Adafruit: 0x3D
-#define OLED_RESET      255
-
-#if (SSD1306_LCDHEIGHT != 64)
-#error("Height incorrect, please fix Adafruit_SSD1306.h!");
-#endif
-
-Adafruit_SSD1306 display(OLED_RESET);
-
 #define AUDIOMEMORY     20
 #define _IF             6000        // intermediate frequency
 #define SAMPLE_RATE     (_IF * 4)   // new Audio-Library sample rate
@@ -89,8 +77,6 @@ Adafruit_SSD1306 display(OLED_RESET);
 #define I2S_FREQ_MAX    36000000
 #define I2S0_TCR2_DIV   0
 
-const char sdrname[]  = "Mini - SDR";
-//int mode             = SYNCAM;
 int mode              = AM;
 uint8_t ANR_on        = 0;         // off: 0, automatic notch filter:1, automatic noise reduction: 2
 uint8_t AGC_on        = 1;         // automatic gain control ON/OFF
@@ -98,7 +84,6 @@ const float AGC_start = 0.25;
 float AGC_val         = AGC_start;      // agc actual value
 
 uint8_t clk_errcmp    = 1;       // en-/disable clk-error compensation
-int input             = 0;
 float freq;
 settings_t settings;
 
@@ -110,7 +95,7 @@ unsigned long demodulation(void);
 uint16_t filter_bandwidth = 2800;
 const uint32_t FIR_AM_num_taps = 102;
 const uint32_t FIR_SSB_num_taps = 86;
-const uint32_t MAX_num_taps = FIR_AM_num_taps > FIR_SSB_num_taps? FIR_AM_num_taps : FIR_SSB_num_taps;
+const uint32_t MAX_num_taps = FIR_AM_num_taps > FIR_SSB_num_taps ? FIR_AM_num_taps : FIR_SSB_num_taps;
 arm_fir_instance_q15 FIR_I;
 arm_fir_instance_q15 FIR_Q;
 q15_t FIR_I_state [MAX_num_taps + AUDIO_BLOCK_SAMPLES];
@@ -197,57 +182,6 @@ void loadLastSettings(void) {
     mode = settings.station[i].mode;
     ANR_on = settings.station[i].notch;
   }
-
-}
-
-//-------------------------------------------------------
-
-void showFreq(void)
-{
-  //  Serial.print(freq / 1000.0, 4);
-  //  Serial.println("kHz");
-
-  display.setTextSize(1);
-  display.setCursor(0, 20 + 3 * 8);
-  display.fillRect(0, 20 + 3 * 8, 4 * 8, 8, 0);
-  display.println(modestr[mode]);
-
-  display.setCursor(32, 20 + 3 * 8);
-  display.fillRect(32, 20 + 3 * 8, 3 * 8, 8, 0);
-  if (AGC_on == 1) display.println("AGC");
-
-#if defined(__MK66FX1M0__)
-  display.setCursor(56, 20 + 3 * 8);
-  display.fillRect(56, 20 + 3 * 8, 4 * 8, 8, 0);
-  if (ANR_on == 1) display.println("Notch");
-  else if (ANR_on == 2) display.println("Noise");
-#endif
-
-  display.setCursor(0, 20 + 4 * 8);
-  display.fillRect(0, 20 + 4 * 8, display.width(), 8, 0);
-  if (settings.lastFreq > 0) {
-    // display.println("Manual");
-  } else {
-    display.println(settings.station[settings.lastStation].sname);
-  }
-
-  const int x = 0;
-  const int y = 20;
-  const int size = 3;
-
-  display.setTextSize(size);
-  display.fillRect(x, y, display.width(), size * 8, 0);
-  display.setCursor(x, y);
-
-  float f = freq / 1000;
-  int n;
-  if (f < 100.0) n = 4;
-  else if (f < 1000.0) n = 3;
-  else if (f < 10000.0) n = 2;
-  else n = 1;
-  display.print(f, n);
-
-  display.display();
 
 }
 
@@ -380,7 +314,7 @@ void tune(float freq) {
 
   showFreq();
   init_FIR();
-  biquad2_dac.setNotch(0, pdb_freq_actual / 8.0 * CORR_FACT, 15.0); // eliminates some birdy  
+  biquad2_dac.setNotch(0, pdb_freq_actual / 8.0 * CORR_FACT, 15.0); // eliminates some birdy
 
 #if 1
   Serial.printf("Tune: %.1fkHz\n", freq / 1000);
@@ -400,29 +334,15 @@ void setup()   {
   AudioMemory(AUDIOMEMORY);
   PDB0_SC = 0; //Stop PDB
 
-  Serial.println(sdrname);
+
+  Serial.println("Minimal SDR");
   Serial.printf("F_CPU: %dMHz F_BUS: %dMHz\n", (int) (F_CPU / 1000000), (int) (F_BUS / 1000000));
   Serial.printf("IF: %dHz Samplerate: %dHz\n", _IF, _IF * 4 );
   Serial.println();
 
+  initUI();
   initEEPROM();
   initI2S();
-
-  display.begin(SSD1306_SWITCHCAPVCC, OLED_I2CADR);
-  Wire.setClock(I2C_SPEED);
-  display.clearDisplay();
-  display.setTextColor(WHITE);
-
-  display.setCursor(4, 0);
-  display.setTextSize(2);
-  //display.println(sdrname);
-
-  display.setTextSize(1);
-  display.setCursor(110, 20 + 3 * 8);
-  display.println("kHz");
-
-  display.display();
-
 
   amp_adc.gain(AGC_val); //amplifier after ADC (is this needed?)
 
@@ -445,7 +365,6 @@ void setup()   {
 
   calc_FIR_coeffs (FIR_AM_coeffs, FIR_AM_num_taps, (float32_t)filter_bandwidth, 70, 0, 0.0, (float32_t)SAMPLE_RATE);
   init_FIR();
-  init_Spectrum();
 
   AudioProcessorUsageMaxReset();
   loadLastSettings();
@@ -457,11 +376,9 @@ void setup()   {
 
 void printAudioLibStatistics(void) {
 #if 1
-
   const int audiolibStatisticsInterval = 10000; //ms
   int t = millis();
   static int audiolibLastStatistic = t;
-  static int timestart = t;
 
   if (t - audiolibLastStatistic > audiolibStatisticsInterval) {
     audiolibLastStatistic = t;
@@ -472,105 +389,13 @@ void printAudioLibStatistics(void) {
     Serial.println();
     //minval = maxval = 0;
   }
-
 #endif
-}
-
-//-------------------------------------------------------
-
-void serialUI(void) {
-  if (!Serial.available()) return;
-
-  char ch = Serial.read();
-
-  if (ch >= 'a' && ch <= 'z') {
-    int i = ch - 'a';
-    if (settings.station[i].freq != 0.0) {
-      settings.lastStation = i;
-      settings.lastFreq = 0;
-      freq = settings.station[i].freq;
-      mode = settings.station[i].mode;
-      ANR_on = settings.station[i].notch;
-      Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
-      tune(freq);
-    } else {
-      Serial.println("Empty.");
-    }
-  }
-  else if (ch == 'L') {
-    mode = LSB;
-    settings.lastMode = mode;
-    tune(freq);
-  }
-  else if (ch == 'U') {
-    mode = USB;
-    settings.lastMode = mode;
-    tune(freq);
-  }
-  else if (ch == 'A') {
-    mode = AM;
-    settings.lastMode = mode;
-    tune(freq);
-  }
-#if defined(__MK66FX1M0__)
-  else if (ch == 'S') {
-    mode = SYNCAM;
-    settings.lastMode = mode;
-    tune(freq);
-  }
-  else if (ch == 'N') {
-    if (ANR_on == 2)
-    {
-      ANR_on = 0;
-      Serial.println("Auto-Notch OFF");
-    }
-    else if (ANR_on == 0)
-    {
-      ANR_on = 1;
-      Serial.println("Auto-Notch ON");
-    }
-    else if (ANR_on == 1)
-    {
-      ANR_on = 2;
-      Serial.println("Auto-Noise ON");
-    }
-    tune(freq);
-  }
-#endif
-  else if (ch == 'G') {
-    if (AGC_on)
-    {
-      AGC_on = 0;
-      Serial.println("AGC OFF");
-    }
-    else
-    {
-      AGC_on = 1;
-      Serial.println("AGC ON");
-    }
-    showFreq();
-  }
-  else if (ch == '!') {
-    EEPROMsaveSettings();
-    Serial.println("Settings saved");
-  }
-  else if (ch >= '0' && ch <= '9') {
-    input = input * 10 + (ch - '0');
-  } else if (ch == '\r') {
-    if (input > 0) {
-      if (input < 1000) input *= 1000;
-      freq = input;
-      settings.lastFreq = input;
-      input = 0;
-      tune(freq);
-    }
-  }
 }
 
 //-------------------------------------------------------
 
 void loop() {
-  serialUI();
+  UI();
   printAudioLibStatistics();
   //asm ("wfi");
   time_needed = demodulation();
@@ -650,45 +475,46 @@ void AGC(int16_t * block) {
 
 unsigned long demodulation(void) {
 
+  if ( queue_dac.available() == false ) return 0;
   if ( queue_adc.available() < 1 ) return 0;
-  if ( !queue_dac.available() ) return 0;
 
   unsigned long time_start = micros();
-
-  int16_t * p_adc;
-  p_adc = queue_adc.readBuffer();
-
-  show_spectrum(p_adc);
-  AGC(p_adc);
-
-  /*
-     I/Q conversion
-     frequency translation without multiplication
-     - multiply the signal from the ADC with a Cosine for I channel
-     - multiply the signal from the ADC with a Sine   for Q channel
-     if IF == sample rate / 4,
-     the Cosine is {1, 0, -1, 0, 1, 0, -1, 0 . . . .}
-     and the Sine is {0, 1, 0, -1, 0, 1, 0, -1 . . . .}
-  */
-
   int16_t I_buffer[AUDIO_BLOCK_SAMPLES];
   int16_t Q_buffer[AUDIO_BLOCK_SAMPLES];
 
-  for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
+  {
+    int16_t * p_adc;
+    p_adc = queue_adc.readBuffer();
 
-    I_buffer[i]     = p_adc[i + 0];
-    I_buffer[i + 1] = 0;
-    I_buffer[i + 2] = - p_adc[i + 2];
-    I_buffer[i + 3] = 0;
+    showSpectrum(p_adc);
+    AGC(p_adc);
 
-    Q_buffer[i + 0] = 0;
-    Q_buffer[i + 1] = p_adc[i + 1];
-    Q_buffer[i + 3] = - p_adc[i + 3];
-    Q_buffer[i + 2] = 0;
+    /*
+       I/Q conversion
+       frequency translation without multiplication
+       - multiply the signal from the ADC with a Cosine for I channel
+       - multiply the signal from the ADC with a Sine   for Q channel
+       if IF == sample rate / 4,
+       the Cosine is {1, 0, -1, 0, 1, 0, -1, 0 . . . .}
+       and the Sine is {0, 1, 0, -1, 0, 1, 0, -1 . . . .}
+    */
 
+    for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
+
+      I_buffer[i]     = p_adc[i + 0];
+      I_buffer[i + 1] = 0;
+      I_buffer[i + 2] = - p_adc[i + 2];
+      I_buffer[i + 3] = 0;
+
+      Q_buffer[i + 0] = 0;
+      Q_buffer[i + 1] = p_adc[i + 1];
+      Q_buffer[i + 3] = - p_adc[i + 3];
+      Q_buffer[i + 2] = 0;
+
+    }
+
+    queue_adc.freeBuffer();
   }
-
-  queue_adc.freeBuffer();
 
   /*
      Here, we have to filter separately the I & Q channel with a linear phase filter
@@ -994,44 +820,26 @@ void calc_FIR_coeffs (int16_t* coeffs, int numCoeffs, float32_t fc, float32_t As
       coeffs[nc / 2] += 1;
       break;
   };
-  /*
-    if (type == 1)
-    {
-      coeffs[nc / 2] += 1;
-    }
-    else if (type == 2)
-    {
-      for (jj = 0; jj < nc + 1; jj++) coeffs[jj] *= 2.0f * cosf(PIH * (2 * jj - nc) * fc);
-    }
-    else if (type == 3)
-    {
-      for (jj = 0; jj < nc + 1; jj++) coeffs[jj] *= -2.0f * cosf(PIH * (2 * jj - nc) * fc);
-      coeffs[nc / 2] += 1;
-    }
-  */
 } // END calc_FIR_coeffs
 
 float m_sinc(int m, float fc)
 { // fc is f_cut/(Fsamp/2)
   // m is between -M and M step 2
-  //
+
+  if (m == 0) return 1.0f;
   float x = m * PIH;
-  if (m == 0)
-    return 1.0f;
-  else
-    return sinf(x * fc) / (fc * x);
+  return sinf(x * fc) / (fc * x);
 }
 
 float32_t Izero (float32_t x)
 {
+  static const float32_t errorlimit = 1e-9;
   float32_t x2 = x / 2.0;
   float32_t summe = 1.0;
   float32_t ds = 1.0;
   float32_t di = 1.0;
-  float32_t errorlimit = 1e-9;
   float32_t tmp;
-  do
-  {
+  do {
     tmp = x2 / di;
     tmp *= tmp;
     ds *= tmp;
@@ -1064,103 +872,5 @@ void init_FIR(void) {
       arm_fir_init_q15(&FIR_I, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
       arm_fir_init_q15(&FIR_Q, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
       break;
-  }
-}
-
-//-------------------------------------------------------
-
-arm_rfft_instance_q15 FFT;
-
-void init_Spectrum(void) {
-  arm_rfft_init_q15 (&FFT, 128, 0, 1);
-}
-
-void show_spectrum(int16_t * data)
-{
-#define SPECTRUM_DELETE_COLOUR BLACK
-#define SPECTRUM_DRAW_COLOUR WHITE
-
-  static const int16_t spectrum_height = 16;
-  static const int16_t spectrum_y = 0;
-  static const int16_t spectrum_x = 0;
-
-  // FFT with 128 points
-  int16_t FFT_out [128];
-  int16_t FFT_in [128];
-
-  static int counter = 0;
-
-  int16_t pixelnew[128];
-  int16_t y_new, y1_new;
-  int16_t y1_new_minus = 0;
-
-  counter++;
-  if (counter == 25)
-  {
-    counter = 0;
-    memcpy(FFT_in, data, sizeof(FFT_in));
-    arm_rfft_q15(&FFT, FFT_in, FFT_out);
-
-    display.fillRect(0, spectrum_y, display.width(), spectrum_y + spectrum_height, SPECTRUM_DELETE_COLOUR);
-
-    for (int16_t x = 0; x < 127; x++)
-    {
-      pixelnew[x] = abs(FFT_out[127 - x]) / 200;
-
-      if ((x > 1) && (x < 127))
-        // moving window - weighted average of 5 points of the spectrum to smooth spectrum in the frequency domain
-        // weights:  x: 50% , x-1/x+1: 36%, x+2/x-2: 14%
-      {
-        if (0)
-        {
-          y_new = pixelnew[x] * 0.5 + pixelnew[x - 1] * 0.18 + pixelnew[x + 1] * 0.18 + pixelnew[x - 2] * 0.07 + pixelnew[x + 2] * 0.07;
-        }
-        else
-        {
-          y_new = pixelnew[x];
-        }
-      }
-      else
-      {
-        y_new = pixelnew[x];
-      }
-
-
-      if (y_new > (spectrum_height))
-      {
-        y_new = (spectrum_height);
-      }
-      y1_new  = (spectrum_y + spectrum_height - 1) - y_new;
-
-      if (x == 0)
-      {
-        y1_new_minus = y1_new;
-      }
-      if (x == 127)
-      {
-        y1_new_minus = y1_new;
-      }
-
-      {
-
-        // DRAW NEW LINE/POINT
-        if (y1_new - y1_new_minus > 1)
-        { // plot line upwards
-          display.drawFastVLine(x + spectrum_x, y1_new_minus + 1, y1_new - y1_new_minus, SPECTRUM_DRAW_COLOUR);
-        }
-        else if (y1_new - y1_new_minus < -1)
-        { // plot line downwards
-          display.drawFastVLine(x + spectrum_x, y1_new, y1_new_minus - y1_new, SPECTRUM_DRAW_COLOUR);
-        }
-        else
-        {
-          display.drawPixel(x + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR); // write new pixel
-        }
-
-        y1_new_minus = y1_new;
-
-      }
-    } // end for loop
-    display.display(spectrum_y, spectrum_y + spectrum_height);
   }
 }

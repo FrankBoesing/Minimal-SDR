@@ -143,6 +143,28 @@ void Adafruit_SSD1306::drawPixel(int16_t x, int16_t y, uint16_t color) {
 
 }
 
+int Adafruit_SSD1306::readPixel(int x, int y) {
+#if 0	
+  // check rotation, move pixel around if necessary
+  switch (getRotation()) {
+  case 1:
+    ssd1306_swap(x, y);
+    x = WIDTH - x - 1;
+    break;
+  case 2:
+    x = WIDTH - x - 1;
+    y = HEIGHT - y - 1;
+    break;
+  case 3:
+    ssd1306_swap(x, y);
+    y = HEIGHT - y - 1;
+    break;
+  }
+#endif
+   return (buffer[x+ (y/8)*SSD1306_LCDWIDTH] & (1 << (y&7))) > 0?1:0;
+  
+}
+
 Adafruit_SSD1306::Adafruit_SSD1306(int8_t SID, int8_t SCLK, int8_t DC, int8_t RST, int8_t CS) : Adafruit_GFX(SSD1306_LCDWIDTH, SSD1306_LCDHEIGHT) {
   cs = CS;
   rst = RST;
@@ -493,11 +515,13 @@ void Adafruit_SSD1306::display(void) {
   }
 }
 
-void Adafruit_SSD1306::display(int fromline, int toline) {
+/*******************************************************************************/
+
+void Adafruit_SSD1306::display(int toline) { //FB - nur durch 8 teilbare Startzeile "from line" erlaubt!
 	Wire.finish();
   ssd1306_command(SSD1306_COLUMNADDR);
-  ssd1306_command(fromline * SSD1306_LCDWIDTH / 8);   // Column start address (0 = reset)
-  ssd1306_command(SSD1306_LCDWIDTH-1); // Column end address (127 = reset)
+  ssd1306_command(0);   // Column start address (0 = reset)  
+	ssd1306_command(SSD1306_LCDWIDTH-1); // Column end address (127 = reset)
   ssd1306_command(SSD1306_PAGEADDR);
   ssd1306_command(0); // Page start address (0 = reset)
   #if SSD1306_LCDHEIGHT == 64
@@ -512,8 +536,8 @@ void Adafruit_SSD1306::display(int fromline, int toline) {
 
     // I2C
 		
-		uint16_t i = fromline * SSD1306_LCDWIDTH / 8;
-		uint16_t size = (fromline+toline) * SSD1306_LCDWIDTH / 8;
+		uint16_t i = 0;
+		uint16_t size = toline * SSD1306_LCDWIDTH / 8;
 		do {			
 			Wire.finish();
       Wire.beginTransmission(_i2caddr);
@@ -529,6 +553,205 @@ void Adafruit_SSD1306::display(int fromline, int toline) {
   
 }
 
+uint8_t * Adafruit_SSD1306::getBufAddr(void) { //FB
+	return (uint8_t*)buffer;
+}
+
+unsigned Adafruit_SSD1306::getBufSize(void) { //FB
+ return sizeof(buffer);
+}
+
+/* Use fonts from ILI9341_t3 by Paul Stoffregen: */
+static uint32_t fetchbit(const uint8_t *p, uint32_t index) { //FB
+	if (p[index >> 3] & (1 << (7 - (index & 7)))) return 1;
+	return 0;
+}
+
+static uint32_t fetchbits_unsigned(const uint8_t *p, uint32_t index, uint32_t required) { //FB
+	uint32_t val = 0;
+	do {
+		uint8_t b = p[index >> 3];
+		uint32_t avail = 8 - (index & 7);
+		if (avail <= required) {
+			val <<= avail;
+			val |= b & ((1 << avail) - 1);
+			index += avail;
+			required -= avail;
+		} else {
+			b >>= avail - required;
+			val <<= required;
+			val |= b & ((1 << required) - 1);
+			break;
+		}
+	} while (required);
+	return val;
+}
+
+static uint32_t fetchbits_signed(const uint8_t *p, uint32_t index, uint32_t required) { //FB
+	uint32_t val = fetchbits_unsigned(p, index, required);
+	if (val & (1 << (required - 1))) {
+		return (int32_t)val - (1 << required);
+	}
+	return (int32_t)val;
+}
+
+
+void Adafruit_SSD1306::drawFontChar(unsigned int c) { //FB
+	uint32_t bitoffset;
+	const uint8_t *data;
+
+	//Serial.printf("drawFontChar %d\n", c);
+
+	if (c >= font->index1_first && c <= font->index1_last) {
+		bitoffset = c - font->index1_first;
+		bitoffset *= font->bits_index;
+	} else if (c >= font->index2_first && c <= font->index2_last) {
+		bitoffset = c - font->index2_first + font->index1_last - font->index1_first + 1;
+		bitoffset *= font->bits_index;
+	} else if (font->unicode) {
+		return; // TODO: implement sparse unicode
+	} else {
+		return;
+	}
+	//Serial.printf("  index =	%d\n", fetchbits_unsigned(font->index, bitoffset, font->bits_index));
+	data = font->data + fetchbits_unsigned(font->index, bitoffset, font->bits_index);
+
+	uint32_t encoding = fetchbits_unsigned(data, 0, 3);
+	if (encoding != 0) return;
+	uint32_t width = fetchbits_unsigned(data, 3, font->bits_width);
+	bitoffset = font->bits_width + 3;
+	uint32_t height = fetchbits_unsigned(data, bitoffset, font->bits_height);
+	bitoffset += font->bits_height;
+	//Serial.printf("  size =	%d,%d\n", width, height);
+
+	int32_t xoffset = fetchbits_signed(data, bitoffset, font->bits_xoffset);
+	bitoffset += font->bits_xoffset;
+	int32_t yoffset = fetchbits_signed(data, bitoffset, font->bits_yoffset);
+	bitoffset += font->bits_yoffset;
+	//Serial.printf("  offset = %d,%d\n", xoffset, yoffset);
+
+	uint32_t delta = fetchbits_unsigned(data, bitoffset, font->bits_delta);
+	bitoffset += font->bits_delta;
+	//Serial.printf("  delta =	%d\n", delta);
+
+	//Serial.printf("  cursor = %d,%d\n", cursor_x, cursor_y);
+
+	// horizontally, we draw every pixel, or none at all
+	if (cursor_x < 0) cursor_x = 0;
+	int32_t origin_x = cursor_x + xoffset;
+	if (origin_x < 0) {
+		cursor_x -= xoffset;
+		origin_x = 0;
+	}
+	if (origin_x + (int)width > _width) {
+		if (!wrap) return;
+		origin_x = 0;
+		if (xoffset >= 0) {
+			cursor_x = 0;
+		} else {
+			cursor_x = -xoffset;
+		}
+		cursor_y += font->line_space;
+	}
+	if (cursor_y >= _height) return;
+	cursor_x += delta;
+
+	// vertically, the top and/or bottom can be clipped
+	int32_t origin_y = cursor_y + font->cap_height - height - yoffset;
+	//Serial.printf("  origin = %d,%d\n", origin_x, origin_y);
+
+	// TODO: compute top skip and number of lines
+	int32_t linecount = height;
+	//uint32_t loopcount = 0;
+	uint32_t y = origin_y;
+	while (linecount) {
+		//Serial.printf("	 linecount = %d\n", linecount);
+		uint32_t b = fetchbit(data, bitoffset++);
+		if (b == 0) {
+			//Serial.println("	  single line");
+			uint32_t x = 0;
+			do {
+				uint32_t xsize = width - x;
+				if (xsize > 32) xsize = 32;
+				uint32_t bits = fetchbits_unsigned(data, bitoffset, xsize);
+				drawFontBits(bits, xsize, origin_x + x, y, 1);
+				bitoffset += xsize;
+				x += xsize;
+			} while (x < width);
+			y++;
+			linecount--;
+		} else {
+			uint32_t n = fetchbits_unsigned(data, bitoffset, 3) + 2;
+			bitoffset += 3;
+			uint32_t x = 0;
+			do {
+				uint32_t xsize = width - x;
+				if (xsize > 32) xsize = 32;
+				//Serial.printf("	 multi line %d\n", n);
+				uint32_t bits = fetchbits_unsigned(data, bitoffset, xsize);
+				drawFontBits(bits, xsize, origin_x + x, y, n);
+				bitoffset += xsize;
+				x += xsize;
+			} while (x < width);
+			y += n;
+			linecount -= n;
+		}
+		//if (++loopcount > 100) {
+			//Serial.println("	   abort draw loop");
+			//break;
+		//}
+	}
+}
+
+void Adafruit_SSD1306::drawFontBits(uint32_t bits, uint32_t numbits, uint32_t x, uint32_t y, uint32_t repeat) { //FB
+	// TODO: replace this *slow* code with something fast...
+	//Serial.printf("	   %d bits at %d,%d: %X\n", numbits, x, y, bits);
+	if (bits == 0) return;
+	do {
+		uint32_t x1 = x;
+		uint32_t n = numbits;
+		do {
+			n--;
+			if (bits & (1 << n)) {
+				drawPixel(x1, y, textcolor);
+				//Serial.printf("		 pixel at %d,%d\n", x1, y);
+			}
+			x1++;
+		} while (n > 0);
+		y++;
+		repeat--;
+	} while (repeat);
+
+}
+
+size_t Adafruit_SSD1306::write(uint8_t c)
+{
+	if (font) {
+		if (c == '\n') {
+			//cursor_y += ??
+			cursor_x = 0;
+		} else {
+			drawFontChar(c);
+		}
+	} else {
+		if (c == '\n') {
+			cursor_y += textsize*8;
+			cursor_x  = 0;
+		} else if (c == '\r') {
+			// skip em
+		} else {
+			drawChar(cursor_x, cursor_y, c, textcolor, textbgcolor, textsize);
+			cursor_x += textsize*6;
+			if (wrap && (cursor_x > (_width - textsize*6))) {
+				cursor_y += textsize*8;
+				cursor_x = 0;
+			}
+		}
+	}
+	return 1;
+}
+/*******************************************************************************/
+	
 // clear everything
 void Adafruit_SSD1306::clearDisplay(void) {
   memset(buffer, 0, (SSD1306_LCDWIDTH*SSD1306_LCDHEIGHT/8));
