@@ -1,4 +1,20 @@
- /*********************************************************************
+/*********************************************************************
+
+ Adafruit_SSD1306 - heavily modified to use the faster i2c_t3 library
+ by nox : https://github.com/nox771/i2c_t3
+ 
+ Added True Type font capability, taken from ILI9341_t3 library
+ by Paul Stoffregen: https://github.com/PaulStoffregen/ILI9341_t3
+
+ Added some additional functions.
+ Frank Bösing, 11/2108
+ 
+ Attention: 
+	- Works with I2C Displays only!
+	- Works with Teensy 3.x only!
+ 
+*/ 
+/*********************************************************************
 This is a library for our Monochrome OLEDs based on SSD1306 drivers
 
   Pick one up today in the adafruit shop!
@@ -45,8 +61,10 @@ All text above, and the splash screen must be included in any redistribution
   typedef uint32_t PortMask;
 #endif
 
+#ifdef __cplusplus
 #include <SPI.h>
 #include <Adafruit_GFX.h>
+#endif
 
 #define BLACK 0
 #define WHITE 1
@@ -141,6 +159,28 @@ All text above, and the splash screen must be included in any redistribution
 #define SSD1306_VERTICAL_AND_RIGHT_HORIZONTAL_SCROLL 0x29
 #define SSD1306_VERTICAL_AND_LEFT_HORIZONTAL_SCROLL 0x2A
 
+typedef struct { //FB
+	const unsigned char *index;
+	const unsigned char *unicode;
+	const unsigned char *data;
+	unsigned char version;
+	unsigned char reserved;
+	unsigned char index1_first;
+	unsigned char index1_last;
+	unsigned char index2_first;
+	unsigned char index2_last;
+	unsigned char bits_index;
+	unsigned char bits_width;
+	unsigned char bits_height;
+	unsigned char bits_xoffset;
+	unsigned char bits_yoffset;
+	unsigned char bits_delta;
+	unsigned char line_space;
+	unsigned char cap_height;
+} ILI9341_t3_font_t;
+
+#ifdef __cplusplus
+
 class Adafruit_SSD1306 : public Adafruit_GFX {
  public:
   Adafruit_SSD1306(int8_t SID, int8_t SCLK, int8_t DC, int8_t RST, int8_t CS);
@@ -153,8 +193,7 @@ class Adafruit_SSD1306 : public Adafruit_GFX {
   void clearDisplay(void);
   void invertDisplay(uint8_t i);
   void display();
-	void display(int fromline, int toline); //FB
-
+			
   void startscrollright(uint8_t start, uint8_t stop);
   void startscrollleft(uint8_t start, uint8_t stop);
 
@@ -163,11 +202,21 @@ class Adafruit_SSD1306 : public Adafruit_GFX {
   void stopscroll(void);
 
   void dim(boolean dim);
-
   void drawPixel(int16_t x, int16_t y, uint16_t color);
 
   virtual void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color);
   virtual void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color);
+
+	void display(int toline); //FB
+  uint8_t * getBufAddr(void); //FB
+	unsigned getBufSize(void); //FB
+	int readPixel(int x, int y); //FB
+	
+	/* From ILI9341_t3 by Paul Stoffregen: */
+	void setFont(const ILI9341_t3_font_t &f) { font = &f; }	//FB
+	void drawFontChar(unsigned int c); //FB
+	void drawFontBits(uint32_t bits, uint32_t numbits, uint32_t x, uint32_t y, uint32_t repeat); //FB
+	virtual size_t write(uint8_t c); //FB
 
  private:
   int8_t _i2caddr, _vccstate, sid, sclk, dc, rst, cs;
@@ -178,10 +227,13 @@ class Adafruit_SSD1306 : public Adafruit_GFX {
   PortReg *mosiport, *clkport, *csport, *dcport;
   PortMask mosipinmask, clkpinmask, cspinmask, dcpinmask;
 #endif
-
+	
+	const ILI9341_t3_font_t *font; //FB
+	
   inline void drawFastVLineInternal(int16_t x, int16_t y, int16_t h, uint16_t color) __attribute__((always_inline));
   inline void drawFastHLineInternal(int16_t x, int16_t y, int16_t w, uint16_t color) __attribute__((always_inline));
 
 };
+#endif 
 
 #endif /* _Adafruit_SSD1306_H_ */
