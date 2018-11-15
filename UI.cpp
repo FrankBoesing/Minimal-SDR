@@ -14,16 +14,16 @@
 #include <Encoder.h>
 #include <i2c_t3.h>
 #include <Adafruit_GFX.h>
-#include "src/Adafruit_SSD1306/Adafruit_SSD1306.h"
+#include "src/Adafruit_SSD1306_i2ct3/Adafruit_SSD1306_i2ct3.h"
 #include "src/CMSIS_5/arm_math.h"
 #include "src/CMSIS_5/arm_const_structs.h"
 #include "src/Audio/Audio.h"
 #include "stations.h"
 #include "UI.h"
 
-#include "src/Adafruit_SSD1306/font_Arial.h"
-#include "src/Adafruit_SSD1306/font_digital-7-italic.h"
-#include "src/Adafruit_SSD1306/font_digital-7-mono.h"
+#include "src/Adafruit_SSD1306_i2ct3/font_Arial.h"
+//#include "src/Adafruit_SSD1306_i2ct3/font_digital-7-italic.h"
+#include "src/Adafruit_SSD1306_i2ct3/font_digital-7-mono.h"
 //#include "src/Adafruit_SSD1306/font_UbuntuMono-Regular.h"
 //#include "src/Adafruit_SSD1306/font_UbuntuMono-Bold.h"
 
@@ -76,10 +76,11 @@ void printFreq(void);
 //Menu:
 //
 //Menu Forward Declarations:
-void _mM(void);
-void _mMode(void);
-void _mANR(void);
-typedef void (*mf_t)(void);
+void buttons();
+int _mM(void);
+int _mMode(void);
+int _mANR(void);
+typedef int (*mf_t)(void);
 
 //Consts
 #define MENU_TIMEOUT 6000
@@ -108,21 +109,23 @@ const mf_t menufunc[menuMaxY * menuMaxX] = {
 int spectrum_on_old = Spectrum_on;
 int spectrumCounter = 0;
 int menuActive = 1; // -1 = Menu is inactive
+int menuLastActive = 0; //Last Active Main Menu
 int menuOld    = -99;
 
 void menuExit(void) {
 	display.fillRect(0, 0, SSD1306_LCDWIDTH, SSD1306_LCDHEIGHT, BLACK);
+	showFreq();
 	Spectrum_on = spectrum_on_old;
 	spectrumCounter = 0;
-	Serial.print("Spektrum:");
-	Serial.print(Spectrum_on);
 	menuActive = menuOld = -1;
-	showFreq();             //showFreq is the default screen
 }
 
 void showMenu(void) {
 
 	static unsigned long lastChange = millis();
+	buttons();
+
+	//if (menuActive < 0 && menuOld >= 0) showFreq(); //showFreq is the default screen
 	if (menuActive < 0) return;
 
 	//Timeout
@@ -136,15 +139,17 @@ void showMenu(void) {
 
 	const int lines = 3;
 
-	int i, w, h, l;
+	int i, h, l;
 	int y = LCD_DISPLAYSTART;
 	int x = 0;
 	int menuY = menuActive / menuMaxX;
 	int menuX = menuActive - menuY * menuMaxX;
 
+	display.fillRect(0, y, SSD1306_LCDWIDTH, SSD1306_LCDHEIGHT - y, BLACK);
 	if (menuY == 0) {       //Main Menu
-		display.fillRect(0, y, SSD1306_LCDWIDTH, SSD1306_LCDHEIGHT - y, BLACK);
+		menuLastActive = menuActive;
 		y += 2;
+		display.setTextColor(WHITE);
 		display.setFont(Arial_12); h = 15;
 		i = 0;
 		l = 0;
@@ -152,7 +157,8 @@ void showMenu(void) {
 		x = 8;
 		do {
 			if (i == menuX) {
-				display.fillRect(0, y - 2, SSD1306_LCDWIDTH, h + 2, WHITE);
+				display.fillRoundRect(0, y - 2, SSD1306_LCDWIDTH, h + 2, 6, WHITE);
+				//display.fillRect(0, y - 2, SSD1306_LCDWIDTH, h + 2, WHITE);
 				display.setTextColor(BLACK);
 				printAt(0, y, ">");
 			} else {
@@ -164,41 +170,46 @@ void showMenu(void) {
 		} while (i < menuMaxX && l < lines);
 	}
 
-	else
-	if (menufunc[menuActive] != NULL) {       //submenu
+	else { //submenu
+
 		//Title
-		display.setFont(Arial_16);
-		display.fillRect(0, 0, SSD1306_LCDWIDTH, SSD1306_LCDHEIGHT, BLACK);
-		printAt(4, 0, menu[0][menuX]);
+		display.setFont(Arial_12);
+		display.fillRoundRect(0, 0, SSD1306_LCDWIDTH, 16, 2, WHITE);
+		display.setTextColor(BLACK);
+		printAt(4, 1, menu[0][menuX]);
 		display.print(":");
 
-		y += 2;
-		display.setFont(Arial_12); h = 15;
-		i = 1;
-		l = 0;
-		if (menuY > lines - 1) i = menuY - (lines - 1);
-		x = 8;
-		do {
-			if (i == menuY) {
-				display.fillRect(0, y - 2, SSD1306_LCDWIDTH, h + 2, WHITE);
-				display.setTextColor(BLACK);
-				printAt(0, y, ">");
-			} else {
-				display.setTextColor(WHITE);
-			}
-			printAt(x, y, menu[i][menuX]);
-			i++;
-			l++;
-			y += h;
-		} while (i < menuMaxY && l < lines);
+		if (menufunc[menuActive] != NULL) {
+			y += 2;
+			display.setFont(Arial_12); h = 15;
+			i = 1;
+			l = 0;
+			if (menuY > lines - 1) i = menuY - (lines - 1);
+			x = 8;
+			do {
+				if (i == menuY) {
+					display.fillRoundRect(0, y - 2, SSD1306_LCDWIDTH, h + 2, 6, WHITE);
+					//display.fillRect(0, y - 2, SSD1306_LCDWIDTH, h + 2, WHITE);
+					display.setTextColor(BLACK);
+					printAt(0, y, ">");
+				} else {
+					display.setTextColor(WHITE);
+				}
+				printAt(x, y, menu[i][menuX]);
+				i++;
+				l++;
+				y += h;
+			} while (i < menuMaxY && l < lines);
+		}
 	}
 
 	display.display();
+	display.setTextColor(WHITE);
 	menuOld = menuActive;
 }
 //-------------------------------------------------------
 
-void _mM(void) {
+int _mM(void) {
 	//MainMenu - Navigation
 	int menuY = menuActive / menuMaxX;
 	int menuX = menuActive - menuY * menuMaxX;
@@ -213,12 +224,17 @@ void _mM(void) {
 	else
 	if (btn == BTN_CENTER) {
 		//Enter Submenu
-		int t = menuActive + menuMaxX;
+		int t = menuActive + 1 * menuMaxX;
 		if (menufunc[t] != NULL) {
-			menuActive = t;
+			//If submenu returns own position (remembers the last set value),
+			//use it, otherwise (t2==0) use first
+			int t2 = menufunc[t]();
+			if (t > 0) menuActive = menuActive + t2 * menuMaxX;
+			else menuActive = t;
 			Spectrum_on = 0;
 		}
 	}
+	return 0;
 }
 //-------------------------------------------------------
 int _MSubNav(void) {
@@ -238,23 +254,34 @@ int _MSubNav(void) {
 	else
 	if (btn == BTN_CENTER) {
 		//Exit menu, return selected submenu
-		menuExit();
 		return menuY - 1;
 	}
 	return -1;
 }
-void _mInteger(int * val) {
+//-------------------------------------------------------
+int _mInteger(int val) {
 	int v;
 	v = _MSubNav();
-	if (v > -1) *val = v;
+	return v;
 }
-void _mMode(void) {
-	_mInteger(&mode);
+int _mMode(void) {
+	int t = _mInteger(mode);
+	if (t > -1) {
+		mode = t;
+		menuExit();
+	}
+	//return menu-y-position:
+	return mode + 1;
 }
-void _mANR(void) {
-	_mInteger(&ANR_on);
+int _mANR(void) {
+	int t = _mInteger(ANR_on);
+	if (t > -1) {
+		ANR_on = t;
+		menuExit();
+	}
+	//return menu-y-position:
+	return ANR_on + 1;
 }
-
 //-------------------------------------------------------
 void serialUI(void) {
 	if (!Serial.available()) return;
@@ -474,7 +501,7 @@ void showFreq(void) {
 	printFreq();
 
 	display.setFont(Arial_8);
-	x = 110;
+	x = 106;
 	printAt(x, y + 1, "kHz");
 	printAt(x, y + 14, modestr[mode]);       //Display Mode
 
@@ -563,7 +590,7 @@ void buttons(void) {
 
 	if (menuActive < 0 && btn == BTN_CENTER) {
 		//Enter Menu
-		menuActive = 0;
+		menuActive = menuLastActive;
 		spectrum_on_old = Spectrum_on;
 	}
 	else
@@ -573,13 +600,22 @@ void buttons(void) {
 		func = menufunc[menuActive];
 		func();
 	}
+	else
+
+	//if menu is not active, use encoder to set frequency
+	//TODO: how to set fractions ? i.e. 77500 kHz (long center press to activate?)
+	//TODO: Frequenzraster beachten (Mittelwelle!)
+	if (menuActive < 0) {
+		if (btn == BTN_UP) { freq -= 1000; showFreq(); }
+		else
+		if (btn == BTN_DOWN) { freq += 1000;  showFreq(); }
+	}
 
 }
 
 //-------------------------------------------------------
 void UI(void) {
 	serialUI();
-	buttons();
 	showMenu();
 }
 //-------------------------------------------------------
