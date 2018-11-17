@@ -78,18 +78,20 @@ AudioConnection patchCord5(amp_dac, dac1);
 #define I2S0_TCR2_DIV   0
 
 settings_t settings;
-int mode             = AM;
-int ANR_on           = 0;         // off: 0, automatic notch filter:1, automatic noise reduction: 2
-int AGC_on           = 1;         // automatic gain control ON/OFF
-int Spectrum_on      = 1;         // spektrum display on/off
-int filter_bandwidth = 2800;
+int mode              = AM;
+int ANR_on            = 0;         // off: 0, automatic notch filter:1, automatic noise reduction: 2
+int AGC_on            = 1;         // automatic gain control ON/OFF
+int Spectrum_on       = 1;         // spektrum display on/off
+int filter_bandwidth  = 2800;
 float freq;
 
-const float AGC_start = 0.25;
+const float AGC_start = 0.25f;
+const float AGC_Max   = 32.0f;
 float AGC_val         = AGC_start;      // agc actual value
+
 const uint8_t clk_errcmp  = 1;       // en-/disable clk-error compensation
 
-const uint32_t FIR_AM_num_taps = 102;
+const uint32_t FIR_AM_num_taps  = 102;
 const uint32_t FIR_SSB_num_taps = 86;
 const uint32_t MAX_num_taps = FIR_AM_num_taps > FIR_SSB_num_taps ? FIR_AM_num_taps : FIR_SSB_num_taps;
 arm_fir_instance_q15 FIR_I;
@@ -385,6 +387,7 @@ void printAudioLibStatistics(void) {
 		Serial.printf("AudioMemoryUsageMax: %d Blocks\n", AudioMemoryUsageMax());
 		float demod = (time_needed_max / 1e6) * 100 / (AUDIO_BLOCK_SAMPLES / pdb_freq_actual);
 		Serial.printf("AudioLibrary: %.2f%% + Demodulation: %.2f%% = %.2f%%\n", AudioProcessorUsageMax(), demod, AudioProcessorUsageMax() + demod );
+		Serial.printf("AGC: %.2f\n", AGC_val);
 		Serial.println();
 		//minval = maxval = 0;
 	}
@@ -446,8 +449,11 @@ void AGC(int16_t * block) {
 	const float x = 16000;
 	float f = x / d;
 	if (f > 1.3) {
-		AGC_val = AGC_val + (AGC_val * f / 1500);
-		amp_adc.gain(AGC_val);
+		float fagc = AGC_val + (AGC_val * f / 1500);
+		if (fagc < AGC_Max) {
+			AGC_val = fagc;
+			amp_adc.gain(AGC_val);
+		}
 	}
 
 	else if (AGC_val > 0.1) {

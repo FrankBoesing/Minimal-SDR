@@ -169,16 +169,29 @@ public:
 	void setFont(const ILI9341_t3_font_t &f) { //FB
 		font = &f;
 	}
-	void drawFontChar(unsigned int c); //FB
-	void drawFontBits(uint32_t bits, uint32_t numbits, uint32_t x, uint32_t y, uint32_t repeat); //FB
+
+	//from https://github.com/blackketter/ILI9341_t3/ :
+	void measureChar(unsigned char c, uint16_t* w, uint16_t* h);//FB
+	uint16_t measureTextWidth(const char* text, int num); //FB
+	uint16_t measureTextHeight(const char* text, int num); //FB
+	uint16_t fontCapHeight() {
+		return font->cap_height;
+	}                                                    //FB
+	uint16_t fontLineSpace() {
+		return font->line_space;
+	}                                                    //FB
+	uint16_t fontGap() {
+		return font->line_space - font->cap_height;
+	};                                                                 //FB
+
 	virtual size_t write(uint8_t c); //FB
 
 private:
 	int8_t _i2caddr, _vccstate, rst;
 
-
 	const ILI9341_t3_font_t *font; //FB
-
+	inline void drawFontChar(unsigned int c); //FB
+	inline void drawFontBits(uint32_t bits, uint32_t numbits, uint32_t x, uint32_t y, uint32_t repeat); //FB
 	inline void drawFastVLineInternal(int x, int y, int h, uint16_t color) __attribute__((always_inline));
 	inline void drawFastHLineInternal(int x, int y, int w, uint16_t color) __attribute__((always_inline));
 

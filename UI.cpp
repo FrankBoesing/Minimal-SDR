@@ -68,6 +68,7 @@ uint8_t * buffer;
 unsigned bufsize;
 int btn = -1;
 int encoderPos = 0;
+int freqStep; //-1 = eeprom-memory
 //-------------------------------------------------------
 //Forward declarations
 void printAt(int x, int y, const char * txt);
@@ -77,6 +78,7 @@ void printFreq(void);
 //
 //Menu Forward Declarations:
 void buttons();
+int _mTune(void);
 int _mM(void);
 int _mMode(void);
 int _mANR(void);
@@ -84,36 +86,36 @@ typedef int (*mf_t)(void);
 
 //Consts
 #define MENU_TIMEOUT 6000
-const int menuMaxX = 4;
+const int menuMaxX = 5;
 const int menuMaxStrlen = 20;
 //Menu - Main
 const char menu[][menuMaxX][menuMaxStrlen] = {
-	{"Memory", "Mode", "Noise Reduction",   "Settings"     },
-	{"",       "SAM",  "Off",               "Filter Bandw."},
-	{"",       "AM",   "Notch",             "# of Taps"    },
-	{"",       "LSB",  "Noise",             ""             },
-	{"",       "USB",  "",                  ""             }
+	{"Tuning",       "Mode", "Noise Reduction",  "Filter AM",     "Filter SSB"     },
+	{"Memory",       "SAM",  "Off",              "Filter Bandw.", "Filter Bandw."  },
+	{"Step 1 kHz",   "AM",   "Notch",            "# of Taps",     "# of Taps"      },
+	{"Step 0.1 kHz", "LSB",  "Noise",            "",              "",              },
+	{"",             "USB",  "",                 "",              "",              }
 };
 const int menuMaxY = sizeof(menu) / menuMaxX / menuMaxStrlen;
 
 //Menu - Main Functions
 const mf_t menufunc[menuMaxY * menuMaxX] = {
-	_mM,       _mM,    _mM,                _mM,
-	NULL,      _mMode, _mANR,              NULL,
-	NULL,      _mMode, _mANR,              NULL,
-	NULL,      _mMode, _mANR,              NULL,
-	NULL,      _mMode, NULL,               NULL,
+	_mM,            _mM,     _mM,                _mM,               _mM,
+	_mTune,         _mMode,  _mANR,              NULL,              NULL,
+	_mTune,         _mMode,  _mANR,              NULL,              NULL,
+	_mTune,         _mMode,  _mANR,              NULL,              NULL,
+	NULL,           _mMode,  NULL,               NULL,              NULL
 };
 
 //-------------------------------------------------------
 int spectrum_on_old = Spectrum_on;
 int spectrumCounter = 0;
-int menuActive = 1; // -1 = Menu is inactive
+int menuActive = -1; // -1 = Menu is inactive
 int menuLastActive = 0; //Last Active Main Menu
 int menuOld    = -99;
 
 void menuExit(void) {
-	display.fillRect(0, 0, SSD1306_LCDWIDTH, SSD1306_LCDHEIGHT, BLACK);
+	display.clearDisplay();
 	showFreq();
 	Spectrum_on = spectrum_on_old;
 	spectrumCounter = 0;
@@ -125,7 +127,6 @@ void showMenu(void) {
 	static unsigned long lastChange = millis();
 	buttons();
 
-	//if (menuActive < 0 && menuOld >= 0) showFreq(); //showFreq is the default screen
 	if (menuActive < 0) return;
 
 	//Timeout
@@ -145,7 +146,7 @@ void showMenu(void) {
 	int menuY = menuActive / menuMaxX;
 	int menuX = menuActive - menuY * menuMaxX;
 
-	display.fillRect(0, y, SSD1306_LCDWIDTH, SSD1306_LCDHEIGHT - y, BLACK);
+	display.fillRect(0, y, display.width(), display.height() - y, BLACK);
 	if (menuY == 0) {       //Main Menu
 		menuLastActive = menuActive;
 		y += 2;
@@ -157,8 +158,8 @@ void showMenu(void) {
 		x = 8;
 		do {
 			if (i == menuX) {
-				display.fillRoundRect(0, y - 2, SSD1306_LCDWIDTH, h + 2, 6, WHITE);
-				//display.fillRect(0, y - 2, SSD1306_LCDWIDTH, h + 2, WHITE);
+				display.fillRoundRect(0, y - 2, display.width(), h + 2, 6, WHITE);
+				//display.fillRect(0, y - 2, display.width(), h + 2, WHITE);
 				display.setTextColor(BLACK);
 				printAt(0, y, ">");
 			} else {
@@ -174,7 +175,7 @@ void showMenu(void) {
 
 		//Title
 		display.setFont(Arial_12);
-		display.fillRoundRect(0, 0, SSD1306_LCDWIDTH, 16, 2, WHITE);
+		display.fillRoundRect(0, 0, display.width(), 16, 2, WHITE);
 		display.setTextColor(BLACK);
 		printAt(4, 1, menu[0][menuX]);
 		display.print(":");
@@ -188,8 +189,8 @@ void showMenu(void) {
 			x = 8;
 			do {
 				if (i == menuY) {
-					display.fillRoundRect(0, y - 2, SSD1306_LCDWIDTH, h + 2, 6, WHITE);
-					//display.fillRect(0, y - 2, SSD1306_LCDWIDTH, h + 2, WHITE);
+					display.fillRoundRect(0, y - 2, display.width(), h + 2, 6, WHITE);
+					//display.fillRect(0, y - 2, display.width(), h + 2, WHITE);
 					display.setTextColor(BLACK);
 					printAt(0, y, ">");
 				} else {
@@ -264,6 +265,23 @@ int _mInteger(int val) {
 	v = _MSubNav();
 	return v;
 }
+
+int _mTune(void){
+	int s;
+	if (freqStep < 0) s = 0;
+	else if (freqStep == 1000) s = 1;
+	else if (freqStep == 100) s = 2;
+	int t = _mInteger(s);
+
+	switch (t) {
+	case 0: freqStep = -1; menuExit(); break;
+	case 1: freqStep = 1000; menuExit(); break;
+	case 2: freqStep = 100; menuExit(); break;
+	}
+
+	return s + 1;
+}
+
 int _mMode(void) {
 	int t = _mInteger(mode);
 	if (t > -1) {
@@ -283,25 +301,29 @@ int _mANR(void) {
 	return ANR_on + 1;
 }
 //-------------------------------------------------------
+boolean tuneStation(int i) {
+	if (settings.station[i].freq != 0) {
+		settings.lastStation = i;
+		settings.lastFreq = 0;
+		freq = settings.station[i].freq;
+		mode = settings.station[i].mode;
+		ANR_on = settings.station[i].notch;
+		Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
+		tune(freq);
+		return true;
+	}
+	Serial.println("Empty.");
+	return false;
+}
+//-------------------------------------------------------
 void serialUI(void) {
 	if (!Serial.available()) return;
 
 	static int input = 0;
 	char ch = Serial.read();
 
-	if (ch >= 'a' && ch <= 'z') {
-		int i = ch - 'a';
-		if (settings.station[i].freq != 0.0) {
-			settings.lastStation = i;
-			settings.lastFreq = 0;
-			freq = settings.station[i].freq;
-			mode = settings.station[i].mode;
-			ANR_on = settings.station[i].notch;
-			Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
-			tune(freq);
-		} else {
-			Serial.println("Empty.");
-		}
+	if (ch >= 'a' && ch <= ('a' + MAX_EMEMORY - 1)) {
+		tuneStation(ch - 'a');
 	}
 	else if (ch == 'L') {
 		mode = LSB;
@@ -478,19 +500,18 @@ void printAt(int x, int y, const char * txt) {
 
 //-------------------------------------------------------
 void printFreq(void) {
-	float f = freq / 1000;
-	int n = 1;
-	if (f < 100.0) n = 4;
-	else if (f < 1000.0) n = 3;
-	else if (f < 10000.0) n = 2;
-	display.print(f, n);
+	int n = 2;
+	if (freq >= 10000000) n = 1;
+	if (freq <=   100000) display.print(" ");
+	if (freq <=    10000) display.print(" ");
+	display.print(freq / 1000, n);
 }
 //-------------------------------------------------------
 void showFreq(void) {
 
 	int y = LCD_DISPLAYSTART;
 	display.setTextColor(WHITE);
-	display.fillRect(0, y, SSD1306_LCDWIDTH, SSD1306_LCDHEIGHT - y, BLACK);
+	display.fillRect(0, y, display.width(), display.height() - y, BLACK);
 	int x = 0;
 	int size = 26;
 
@@ -518,7 +539,10 @@ void showFreq(void) {
 	if (settings.lastFreq > 0) {
 		//printAt(0, y, "Manual Setting");
 	} else {
-		printAt(0, y, settings.station[settings.lastStation].sname);
+		const char * p = settings.station[settings.lastStation].sname;
+		int x = (display.width() - display.measureTextWidth(p, 0)) >> 1;
+		if (x < 0) x = 0;
+		printAt(x, y, p);// print centered
 	}
 
 	display.display();
@@ -527,20 +551,14 @@ void showFreq(void) {
 //-------------------------------------------------------
 
 void initUI(void) {
-#if 0
 	pinMode(BTN_CENTER, INPUT_PULLUP);
 	pinMode(BTN_UP, INPUT_PULLUP);
 	pinMode(BTN_DOWN, INPUT_PULLUP);
 	pinMode(BTN_LEFT, INPUT_PULLUP);
 	pinMode(BTN_RIGHT, INPUT_PULLUP);
 	pinMode(ENC_CENTER, INPUT_PULLUP);
-#else
-	pinMode(BTN_CENTER, INPUT);
-	pinMode(BTN_UP, INPUT);
-	pinMode(BTN_DOWN, INPUT);
-	pinMode(BTN_LEFT, INPUT);
-	pinMode(BTN_RIGHT, INPUT);
-	pinMode(ENC_CENTER, INPUT);
+#if DBGFRANKB
+
 	pinMode(5, OUTPUT);
 	digitalWriteFast(5, HIGH);       //3V
 	pinMode(12, OUTPUT);
@@ -555,6 +573,8 @@ void initUI(void) {
 	printAt(0, 0, "Minimal SDR");
 
 	display.display();
+
+	freqStep = (settings.lastFreq != 0) ? 1000 : -1;
 	initSpectrum();
 
 	buffer = display.getBufAddr();
@@ -606,9 +626,16 @@ void buttons(void) {
 	//TODO: how to set fractions ? i.e. 77500 kHz (long center press to activate?)
 	//TODO: Frequenzraster beachten (Mittelwelle!)
 	if (menuActive < 0) {
-		if (btn == BTN_UP) { freq -= 1000; showFreq(); }
-		else
-		if (btn == BTN_DOWN) { freq += 1000;  showFreq(); }
+		if (freqStep < 0) {
+			int s = settings.lastStation;
+			if (btn == BTN_UP && s > 0) { s--; tuneStation(s); }
+			else
+			if (btn == BTN_DOWN && s < MAX_EMEMORY) { s++; tuneStation(s); }
+		} else {
+			if (btn == BTN_UP) { freq -= freqStep; tune(freq); }
+			else
+			if (btn == BTN_DOWN) { freq += freqStep;  tune(freq); }
+		}
 	}
 
 }

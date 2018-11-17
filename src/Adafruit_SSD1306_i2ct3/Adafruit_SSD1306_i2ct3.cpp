@@ -446,12 +446,14 @@ unsigned Adafruit_SSD1306::getBufSize(void) { //FB
 }
 
 /* Use fonts from ILI9341_t3 by Paul Stoffregen: */
-static uint32_t fetchbit(const uint8_t *p, uint32_t index) { //FB
+static
+uint32_t fetchbit(const uint8_t *p, uint32_t index) { //FB
 	if (p[index >> 3] & (1 << (7 - (index & 7)))) return 1;
 	return 0;
 }
 
-static uint32_t fetchbits_unsigned(const uint8_t *p, uint32_t index, uint32_t required) { //FB
+static
+uint32_t fetchbits_unsigned(const uint8_t *p, uint32_t index, uint32_t required) { //FB
 	uint32_t val = 0;
 	do {
 		uint8_t b = p[index >> 3];
@@ -471,7 +473,8 @@ static uint32_t fetchbits_unsigned(const uint8_t *p, uint32_t index, uint32_t re
 	return val;
 }
 
-static uint32_t fetchbits_signed(const uint8_t *p, uint32_t index, uint32_t required) { //FB
+static
+uint32_t fetchbits_signed(const uint8_t *p, uint32_t index, uint32_t required) { //FB
 	uint32_t val = fetchbits_unsigned(p, index, required);
 	if (val & (1 << (required - 1))) {
 		return (int32_t)val - (1 << required);
@@ -583,6 +586,7 @@ void Adafruit_SSD1306::drawFontChar(unsigned int c) { //FB
 	}
 }
 
+inline
 void Adafruit_SSD1306::drawFontBits(uint32_t bits, uint32_t numbits, uint32_t x, uint32_t y, uint32_t repeat) { //FB
 	if (bits == 0) return;
 	do {
@@ -634,11 +638,106 @@ size_t Adafruit_SSD1306::write(uint8_t c)
 	}
 	return 1;
 }
+
+// measureTextWidth/Height taken from https://github.com/blackketter/ILI9341_t3/
+// measure the size of a character
+void Adafruit_SSD1306::measureChar(unsigned char c, uint16_t* w, uint16_t* h) {
+	if (c == 0xa0) {
+		c = ' ';
+	}
+
+	if (font) {
+		*h = font->cap_height;
+		*w = 0;
+
+		uint32_t bitoffset;
+		const uint8_t *data;
+
+		if (c >= font->index1_first && c <= font->index1_last) {
+			bitoffset = c - font->index1_first;
+			bitoffset *= font->bits_index;
+		} else if (c >= font->index2_first && c <= font->index2_last) {
+			bitoffset = c - font->index2_first + font->index1_last - font->index1_first + 1;
+			bitoffset *= font->bits_index;
+		} else if (font->unicode) {
+			return; // TODO: implement sparse unicode
+		} else {
+			return;
+		}
+
+		data = font->data + fetchbits_unsigned(font->index, bitoffset, font->bits_index);
+
+		uint32_t encoding = fetchbits_unsigned(data, 0, 3);
+
+		if (encoding != 0) return;
+
+		//uint32_t width =
+		fetchbits_unsigned(data, 3, font->bits_width);
+		bitoffset = font->bits_width + 3;
+
+		//uint32_t height =
+		fetchbits_unsigned(data, bitoffset, font->bits_height);
+		bitoffset += font->bits_height;
+
+		//int32_t xoffset =
+		fetchbits_signed(data, bitoffset, font->bits_xoffset);
+		bitoffset += font->bits_xoffset;
+
+		//int32_t yoffset =
+		fetchbits_signed(data, bitoffset, font->bits_yoffset);
+		bitoffset += font->bits_yoffset;
+
+		uint32_t delta = fetchbits_unsigned(data, bitoffset, font->bits_delta);
+		*w = delta;
+	} else {
+		*w = 6 * textsize;
+		*h = 8 * textsize;
+	}
+
+}
+
+uint16_t Adafruit_SSD1306::measureTextWidth(const char* text, int num) { //FB
+	uint16_t maxH = 0;
+	uint16_t currH = 0;
+	uint16_t n = num;
+
+	if (n == 0) {
+		n = strlen(text);
+	};
+
+	for (int i = 0; i < n; i++) {
+		if (text[i] == '\n') {
+			if (currH > maxH)
+				maxH = currH;
+			currH = 0;
+		} else {
+			uint16_t h, w;
+			measureChar(text[i], &w, &h);
+			currH += w;
+		}
+	}
+	uint16_t h = maxH > currH ? maxH : currH;
+	return h;
+}
+
+uint16_t Adafruit_SSD1306::measureTextHeight(const char* text, int num) {
+	int lines = 1;
+	uint16_t n = num;
+	if (n == 0) {
+		n = strlen(text);
+	};
+	for (int i = 0; i < n; i++) {
+		if (text[i] == '\n') {
+			lines++;
+		}
+	}
+	return ((lines - 1) * fontLineSpace() + fontCapHeight());
+}
 /*******************************************************************************/
 
 // clear everything
 void Adafruit_SSD1306::clearDisplay(void) {
-	memset(buffer, 0, (SSD1306_LCDWIDTH * SSD1306_LCDHEIGHT / 8));
+	memset(buffer, 0, sizeof(buffer));
 }
 
 
