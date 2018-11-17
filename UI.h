@@ -1,13 +1,13 @@
 /*********************************************************************
-  miniSDR v3
+   miniSDR v3
 
-  By DD4WH and Frank Bösing
+   By DD4WH and Frank Bösing
 
-  GPL V3
+   GPL V3
 
-  - Userinterface -
+   - Userinterface -
 
-**********************************************************************/
+ **********************************************************************/
 #ifndef sdr_ui_h_
 #define sdr_ui_h_
 
@@ -22,16 +22,15 @@
 #define BTN_RIGHT   2
 
 //encoder:
-#if 0
+#if DBGFRANKB
+#define ENC_1       25
+#define ENC_2       26
+#define ENC_CENTER  24
+#else
 #define ENC_1       7
 #define ENC_2       8
 #define ENC_CENTER  10
 #endif
-
-#define ENC_1       25
-#define ENC_2       26
-#define ENC_CENTER  24
-
 //-------------------------------------------------------
 
 void initUI(void);

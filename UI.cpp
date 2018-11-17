@@ -44,11 +44,11 @@ extern int ANR_on; // off: 0, automatic notch filter:1, automatic noise reductio
 extern int AGC_on; // automatic gain control ON/OFF
 extern int Spectrum_on;
 extern int filter_bandwidth;
-extern float freq;
+extern int freq;
 
 //-------------------------------------------------------
 //External functions
-void tune(float freq);
+void tune(int freq);
 void EEPROMsaveSettings(void);
 
 //-------------------------------------------------------
@@ -82,29 +82,30 @@ int _mTune(void);
 int _mM(void);
 int _mMode(void);
 int _mANR(void);
+int _mSave(void);
 typedef int (*mf_t)(void);
 
 //Consts
 #define MENU_TIMEOUT 6000
-const int menuMaxX = 5;
+const int menuMaxX = 6;
 const int menuMaxStrlen = 20;
 //Menu - Main
 const char menu[][menuMaxX][menuMaxStrlen] = {
-	{"Tuning",       "Mode", "Noise Reduction",  "Filter AM",     "Filter SSB"     },
-	{"Memory",       "SAM",  "Off",              "Filter Bandw.", "Filter Bandw."  },
-	{"Step 1 kHz",   "AM",   "Notch",            "# of Taps",     "# of Taps"      },
-	{"Step 0.1 kHz", "LSB",  "Noise",            "",              "",              },
-	{"",             "USB",  "",                 "",              "",              }
+	{"Tuning",       "Mode", "Noise Reduction",  "Filter AM",     "Filter SSB",     "Settings"},
+	{"Memory",       "SAM",  "Off",              "Filter Bandw.", "Filter Bandw.",  "Save now"},
+	{"Step 1 kHz",   "AM",   "Notch",            "# of Taps",     "# of Taps",      ""},
+	{"Step 0.1 kHz", "LSB",  "Noise",            "",              "",               ""},
+	{"",             "USB",  "",                 "",              "",               ""}
 };
 const int menuMaxY = sizeof(menu) / menuMaxX / menuMaxStrlen;
 
 //Menu - Main Functions
 const mf_t menufunc[menuMaxY * menuMaxX] = {
-	_mM,            _mM,     _mM,                _mM,               _mM,
-	_mTune,         _mMode,  _mANR,              NULL,              NULL,
-	_mTune,         _mMode,  _mANR,              NULL,              NULL,
-	_mTune,         _mMode,  _mANR,              NULL,              NULL,
-	NULL,           _mMode,  NULL,               NULL,              NULL
+	_mM,            _mM,     _mM,                _mM,               _mM,            _mM,
+	_mTune,         _mMode,  _mANR,              NULL,              NULL,           _mSave,
+	_mTune,         _mMode,  _mANR,              NULL,              NULL,           NULL,
+	_mTune,         _mMode,  _mANR,              NULL,              NULL,           NULL,
+	NULL,           _mMode,  NULL,               NULL,              NULL,           NULL
 };
 
 //-------------------------------------------------------
@@ -241,7 +242,7 @@ int _mM(void) {
 int _MSubNav(void) {
 	//SubMenu - Navigation, Set Integer
 	int menuY = menuActive / menuMaxX;
-	int menuX = menuActive - menuY * menuMaxX;
+//	int menuX = menuActive - menuY * menuMaxX;
 
 	if (btn == BTN_UP && menuY > 1) {
 		menuActive -= menuMaxX;
@@ -267,9 +268,8 @@ int _mInteger(int val) {
 }
 
 int _mTune(void){
-	int s;
-	if (freqStep < 0) s = 0;
-	else if (freqStep == 1000) s = 1;
+	int s = 0;
+	if (freqStep == 1000) s = 1;
 	else if (freqStep == 100) s = 2;
 	int t = _mInteger(s);
 
@@ -300,6 +300,15 @@ int _mANR(void) {
 	//return menu-y-position:
 	return ANR_on + 1;
 }
+
+int _mSave(void) {
+	int t = _mInteger(ANR_on);
+	if (t > -1) {
+		EEPROMsaveSettings();
+		menuExit();
+	}
+	return 1;
+}
 //-------------------------------------------------------
 boolean tuneStation(int i) {
 	if (settings.station[i].freq != 0) {
@@ -308,11 +317,11 @@ boolean tuneStation(int i) {
 		freq = settings.station[i].freq;
 		mode = settings.station[i].mode;
 		ANR_on = settings.station[i].notch;
-		Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
+		Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
 		tune(freq);
 		return true;
 	}
-	Serial.println("Empty.");
+	//Serial.println("Empty.");
 	return false;
 }
 //-------------------------------------------------------
@@ -380,7 +389,6 @@ void serialUI(void) {
 	}
 	else if (ch == '!') {
 		EEPROMsaveSettings();
-		Serial.println("Settings saved");
 	}
 	else if (ch >= '0' && ch <= '9') {
 		input = input * 10 + (ch - '0');
@@ -403,6 +411,7 @@ void initSpectrum(void) {
 
 void showSpectrum(int16_t * data)
 {
+#if defined(__MK64FX512__) || defined(__MK66FX1M0__)
 #define SPECTRUM_DELETE_COLOUR BLACK
 #define SPECTRUM_DRAW_COLOUR WHITE
 
@@ -489,6 +498,7 @@ void showSpectrum(int16_t * data)
 		}             // end for loop
 		display.display(spectrum_height);
 	}
+#endif
 }
 
 //-------------------------------------------------------
@@ -504,7 +514,7 @@ void printFreq(void) {
 	if (freq >= 10000000) n = 1;
 	if (freq <=   100000) display.print(" ");
 	if (freq <=    10000) display.print(" ");
-	display.print(freq / 1000, n);
+	display.print(freq / 1000.0f, n);
 }
 //-------------------------------------------------------
 void showFreq(void) {
@@ -548,43 +558,14 @@ void showFreq(void) {
 	display.display();
 
 }
+
 //-------------------------------------------------------
+int encoderPosOld = 0;
 
-void initUI(void) {
-	pinMode(BTN_CENTER, INPUT_PULLUP);
-	pinMode(BTN_UP, INPUT_PULLUP);
-	pinMode(BTN_DOWN, INPUT_PULLUP);
-	pinMode(BTN_LEFT, INPUT_PULLUP);
-	pinMode(BTN_RIGHT, INPUT_PULLUP);
-	pinMode(ENC_CENTER, INPUT_PULLUP);
-#if DBGFRANKB
-
-	pinMode(5, OUTPUT);
-	digitalWriteFast(5, HIGH);       //3V
-	pinMode(12, OUTPUT);
-	digitalWriteFast(12, LOW);       //3GND
-#endif
-	display.begin(SSD1306_SWITCHCAPVCC, OLED_I2CADR);
-	Wire.setClock(I2C_SPEED);
-	display.clearDisplay();
-	display.setTextColor(WHITE);
-
-	display.setFont(Arial_16);
-	printAt(0, 0, "Minimal SDR");
-
-	display.display();
-
-	freqStep = (settings.lastFreq != 0) ? 1000 : -1;
-	initSpectrum();
-
-	buffer = display.getBufAddr();
-	bufsize = display.getBufSize();
-
-	spectrumCounter = -500;
+inline int readEncoder(void) {
+	return encoder.read() >> 1;
 }
 
-//-------------------------------------------------------
-int encoderPosOld;
 void buttons(void) {
 
 	btnUp.update();
@@ -595,7 +576,7 @@ void buttons(void) {
 	encCenter.update();
 
 	encoderPosOld = encoderPos;
-	encoderPos = encoder.read() >> 1;
+	encoderPos = readEncoder();
 
 	//Read buttons:
 	if (encCenter.fallingEdge()) btn = BTN_CENTER;
@@ -628,16 +609,50 @@ void buttons(void) {
 	if (menuActive < 0) {
 		if (freqStep < 0) {
 			int s = settings.lastStation;
-			if (btn == BTN_UP && s > 0) { s--; tuneStation(s); }
+			if (btn == BTN_UP && s > 0) { s--; tuneStation(s);  }
 			else
-			if (btn == BTN_DOWN && s < MAX_EMEMORY) { s++; tuneStation(s); }
+			if (btn == BTN_DOWN && s < MAX_EMEMORY) { s++; tuneStation(s);  }
 		} else {
 			if (btn == BTN_UP) { freq -= freqStep; tune(freq); }
 			else
 			if (btn == BTN_DOWN) { freq += freqStep;  tune(freq); }
+			settings.lastFreq = freq;
 		}
 	}
 
+}
+//-------------------------------------------------------
+
+void initUI(void) {
+	pinMode(BTN_CENTER, INPUT_PULLUP);
+	pinMode(BTN_UP, INPUT_PULLUP);
+	pinMode(BTN_DOWN, INPUT_PULLUP);
+	pinMode(BTN_LEFT, INPUT_PULLUP);
+	pinMode(BTN_RIGHT, INPUT_PULLUP);
+	pinMode(ENC_CENTER, INPUT_PULLUP);
+#if DBGFRANKB
+	pinMode(5, OUTPUT);
+	digitalWriteFast(5, HIGH);       //3V
+	pinMode(12, OUTPUT);
+	digitalWriteFast(12, LOW);       //3GND
+#endif
+	display.begin(SSD1306_SWITCHCAPVCC, OLED_I2CADR);
+	Wire.setClock(I2C_SPEED);
+	display.clearDisplay();
+	display.setTextColor(WHITE);
+
+	display.setFont(Arial_16);
+	printAt(0, 0, "Minimal SDR");
+
+	display.display();
+
+	freqStep = (settings.lastFreq != 0) ? 1000 : -1;
+	initSpectrum();
+	encoderPosOld = encoderPos = readEncoder();
+	buffer = display.getBufAddr();
+	bufsize = display.getBufSize();
+
+	spectrumCounter = -500;
 }
 
 //-------------------------------------------------------

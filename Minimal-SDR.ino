@@ -15,6 +15,7 @@
    =================
 
    Teensy 3.2
+   (some functionality not enabled)
    =================
    ADC : Pin A2 / 16
    DAC : Pin A14 DAC
@@ -42,7 +43,17 @@
     Audio output through Teensy DAC
 
 *********************************************************************/
+/*
 
+   TODO:
+   Display:
+    - S-Meter
+    - Spectrum display optional
+   Menu:
+    - Filter-Bandwidth, # of taps
+    - AGC settings
+
+ */
 /********************************************************************/
 #include "stations.h"
 #include <util/crc16.h>
@@ -83,10 +94,10 @@ int ANR_on            = 0;         // off: 0, automatic notch filter:1, automati
 int AGC_on            = 1;         // automatic gain control ON/OFF
 int Spectrum_on       = 1;         // spektrum display on/off
 int filter_bandwidth  = 2800;
-float freq;
+int freq;
 
 const float AGC_start = 0.25f;
-const float AGC_Max   = 32.0f;
+const float AGC_Max   = 40.0f;
 float AGC_val         = AGC_start;      // agc actual value
 
 const uint8_t clk_errcmp  = 1;       // en-/disable clk-error compensation
@@ -134,8 +145,11 @@ uint16_t settingsCrc(void) {
 }
 
 void EEPROMsaveSettings(void) {
+	settings.lastMode = mode;
+	settings.lastNotch = ANR_on;
 	settings.crc = settingsCrc();
 	eeprom_write_block(&settings, 0, sizeof(settings_t));
+	Serial.println("Settings saved");
 }
 
 void initEEPROM(void) {
@@ -161,7 +175,7 @@ void initEEPROM(void) {
 	Serial.printf("Last Mode: %d\n", settings.lastMode);
 	int i = 0;
 	while (i < MAX_EMEMORY) {
-		if (settings.station[i].freq != 0.0)
+		if (settings.station[i].freq != 0)
 			Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, (int) settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
 		i++;
 	}
@@ -290,7 +304,7 @@ void initI2S(void)
 //-------------------------------------------------------
 float pdb_freq_actual;
 
-void tune(float freq) {
+void tune(int freq) {
 	float freq_actual;
 	float freq_diff;
 	float pdb_freq;
@@ -318,7 +332,7 @@ void tune(float freq) {
 	biquad2_dac.setNotch(0, pdb_freq_actual / 8.0 * CORR_FACT, 15.0); // eliminates some birdy
 
 #if 1
-	Serial.printf("Tune: %.1fkHz\n", freq / 1000);
+	Serial.printf("Tune: %.1fkHz\n", (float)freq / 1000.0f);
 	//Serial.printf("BCLK Soll: %f ist: %f Diff: %fHz\n", freq, freq_actual - _IF, freq_diff);
 	//Serial.printf("PDB  Soll: %f ist: %f Diff: %fHz\n", pdb_freq, pdb_freq_actual, pdb_freq_actual - pdb_freq);
 	Serial.println();
@@ -369,6 +383,7 @@ void setup()   {
 
 	AudioProcessorUsageMaxReset();
 	loadLastSettings();
+
 	tune(freq);
 	queue_adc.begin();
 }
@@ -483,7 +498,8 @@ unsigned long demodulation(void) {
 	if ( queue_dac.available() == false ) return 0;
 	if ( queue_adc.available() < 1 ) return 0;
 
-	unsigned long time_start = micros();
+	//unsigned long time_start = micros();
+	unsigned long time_start;
 	int16_t I_buffer[AUDIO_BLOCK_SAMPLES];
 	int16_t Q_buffer[AUDIO_BLOCK_SAMPLES];
 
@@ -492,6 +508,7 @@ unsigned long demodulation(void) {
 		p_adc = queue_adc.readBuffer();
 
 		showSpectrum(p_adc);
+		time_start = micros();
 		AGC(p_adc);
 
 		/*
@@ -575,6 +592,7 @@ unsigned long demodulation(void) {
 		break;
 	}
 #else
+	case SYNCAM:
 	case AM: {
 		q31_t audio;
 		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
@@ -584,7 +602,8 @@ unsigned long demodulation(void) {
 		break;
 	}
 #endif
-	//-------------------------------------------------------
+		//-------------------------------------------------------
+#if defined(__MK64FX512__) || defined(__MK66FX1M0__)
 	case SYNCAM: {
 		// synchronous AM demodulation - the one with the PLL ;-)
 		// code adapted from the wdsp library by Warren Pratt, GNU GPLv3
@@ -643,11 +662,12 @@ unsigned long demodulation(void) {
 		}
 		break;
 	}     //SYNCAM
-
+#endif
 		//-------------------------------------------------------
 	}
 
-#if defined(__MK66FX1M0__)
+
+#if defined(__MK64FX512__) || defined(__MK66FX1M0__)
 	// LMS automatic notch filter to eliminate annoying birdies
 
 	// Automatic noise reduction

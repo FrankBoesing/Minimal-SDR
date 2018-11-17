@@ -5,10 +5,10 @@ enum  { SYNCAM, AM, LSB, USB };
 const char modestr[][5] = {"SAM", "AM", "LSB", "USB"};
 
 #define MAX_EMEMORY 26
-#define EEPROM_STORAGE_VERSION 3
+#define EEPROM_STORAGE_VERSION 5
 
 typedef struct {
-	float freq;
+	int freq;
 	uint8_t mode;
 	uint8_t notch;
 	char sname[33];
@@ -16,7 +16,7 @@ typedef struct {
 
 typedef struct {
 	uint8_t lastStation;
-	float lastFreq;
+	int lastFreq;
 	uint8_t lastMode;
 	uint8_t lastNotch;
 	station_t station[MAX_EMEMORY];
@@ -27,7 +27,7 @@ typedef struct {
 const settings_t settings_default =
 {
 	/* lastStation */ 0,
-	/* lastFreq    */ 0.0,
+	/* lastFreq    */ 0,
 	/* lastMode    */ SYNCAM,
 	/* lastNotch   */ 0,
 	{
