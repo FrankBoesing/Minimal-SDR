@@ -48,7 +48,7 @@ extern int freq;
 
 //-------------------------------------------------------
 //External functions
-void tune(int freq);
+void tune(void);
 void EEPROMsaveSettings(void);
 
 //-------------------------------------------------------
@@ -73,6 +73,7 @@ int freqStep; //-1 = eeprom-memory
 //Forward declarations
 void printAt(int x, int y, const char * txt);
 void printFreq(void);
+boolean tuneStation(int i);
 //-------------------------------------------------------
 //Menu:
 //
@@ -274,7 +275,7 @@ int _mTune(void){
 	int t = _mInteger(s);
 
 	switch (t) {
-	case 0: freqStep = -1; menuExit(); break;
+	case 0: freqStep = -1; tuneStation(settings.lastStation); menuExit(); break;
 	case 1: freqStep = 1000; menuExit(); break;
 	case 2: freqStep = 100; menuExit(); break;
 	}
@@ -318,7 +319,7 @@ boolean tuneStation(int i) {
 		mode = settings.station[i].mode;
 		ANR_on = settings.station[i].notch;
 		Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
-		tune(freq);
+		tune();
 		return true;
 	}
 	//Serial.println("Empty.");
@@ -337,23 +338,23 @@ void serialUI(void) {
 	else if (ch == 'L') {
 		mode = LSB;
 		settings.lastMode = mode;
-		tune(freq);
+		tune();
 	}
 	else if (ch == 'U') {
 		mode = USB;
 		settings.lastMode = mode;
-		tune(freq);
+		tune();
 	}
 	else if (ch == 'A') {
 		mode = AM;
 		settings.lastMode = mode;
-		tune(freq);
+		tune();
 	}
 #if defined(__MK66FX1M0__)
 	else if (ch == 'S') {
 		mode = SYNCAM;
 		settings.lastMode = mode;
-		tune(freq);
+		tune();
 	}
 	else if (ch == 'N') {
 		if (ANR_on == 2)
@@ -371,7 +372,7 @@ void serialUI(void) {
 			ANR_on = 2;
 			Serial.println("Auto-Noise ON");
 		}
-		tune(freq);
+		tune();
 	}
 #endif
 	else if (ch == 'G') {
@@ -398,7 +399,7 @@ void serialUI(void) {
 			freq = input;
 			settings.lastFreq = input;
 			input = 0;
-			tune(freq);
+			tune();
 		}
 	}
 }
@@ -512,8 +513,8 @@ void printAt(int x, int y, const char * txt) {
 void printFreq(void) {
 	int n = 2;
 	if (freq >= 10000000) n = 1;
-	if (freq <=   100000) display.print(" ");
-	if (freq <=    10000) display.print(" ");
+	if (freq <   100000) display.print(" ");
+	if (freq <    10000) display.print(" ");
 	display.print(freq / 1000.0f, n);
 }
 //-------------------------------------------------------
@@ -568,55 +569,50 @@ inline int readEncoder(void) {
 
 void buttons(void) {
 
-	btnUp.update();
-	btnDown.update();
-	btnLeft.update();
-	btnRight.update();
-	btnCenter.update();
-	encCenter.update();
-
 	encoderPosOld = encoderPos;
 	encoderPos = readEncoder();
 
 	//Read buttons:
-	if (encCenter.fallingEdge()) btn = BTN_CENTER;
-	else if (encoderPos < encoderPosOld) btn = BTN_UP;
+	if (encoderPos < encoderPosOld) btn = BTN_UP;
 	else if (encoderPos > encoderPosOld) btn = BTN_DOWN;
-	else if (btnCenter.fallingEdge()) btn = BTN_CENTER;
-	else if (btnUp.fallingEdge()) btn = BTN_UP;
-	else if (btnDown.fallingEdge()) btn = BTN_DOWN;
-	else if (btnLeft.fallingEdge()) btn = BTN_LEFT;
-	else if (btnRight.fallingEdge()) btn = BTN_RIGHT;
+	else if (encCenter.update() && encCenter.fallingEdge()) btn = BTN_CENTER;
+	else if (btnCenter.update() && btnCenter.fallingEdge()) btn = BTN_CENTER;
+	else if (btnUp.update() && btnUp.fallingEdge()) btn = BTN_UP;
+	else if (btnDown.update() && btnDown.fallingEdge()) btn = BTN_DOWN;
+	else if (btnLeft.update() && btnLeft.fallingEdge()) btn = BTN_LEFT;
+	else if (btnRight.update() && btnRight.fallingEdge()) btn = BTN_RIGHT;
 	else btn = -1;
 
-	if (menuActive < 0 && btn == BTN_CENTER) {
-		//Enter Menu
-		menuActive = menuLastActive;
-		spectrum_on_old = Spectrum_on;
-	}
-	else
-	if (btn >= 0  && menuActive >= 0 && menufunc[menuActive] != NULL) {
-		//Process Menufunction
-		mf_t func;
-		func = menufunc[menuActive];
-		func();
-	}
-	else
+	if (btn >= 0) {
+		if (menuActive < 0 && btn == BTN_CENTER) {
+			//Enter Menu
+			menuActive = menuLastActive;
+			spectrum_on_old = Spectrum_on;
+		}
+		else
+		if (btn >= 0  && menuActive >= 0 && menufunc[menuActive] != NULL) {
+			//Process Menufunction
+			mf_t func;
+			func = menufunc[menuActive];
+			func();
+		}
+		else
 
-	//if menu is not active, use encoder to set frequency
-	//TODO: how to set fractions ? i.e. 77500 kHz (long center press to activate?)
-	//TODO: Frequenzraster beachten (Mittelwelle!)
-	if (menuActive < 0) {
-		if (freqStep < 0) {
-			int s = settings.lastStation;
-			if (btn == BTN_UP && s > 0) { s--; tuneStation(s);  }
-			else
-			if (btn == BTN_DOWN && s < MAX_EMEMORY) { s++; tuneStation(s);  }
-		} else {
-			if (btn == BTN_UP) { freq -= freqStep; tune(freq); }
-			else
-			if (btn == BTN_DOWN) { freq += freqStep;  tune(freq); }
-			settings.lastFreq = freq;
+		//if menu is not active, use encoder to set frequency
+		//TODO: how to set fractions ? i.e. 77500 kHz (long center press to activate?)
+		//TODO: Frequenzraster beachten (Mittelwelle!)
+		if (menuActive < 0) {
+			if (freqStep < 0) {
+				int s = settings.lastStation;
+				if (btn == BTN_UP && s > 0) { s--; tuneStation(s);  }
+				else
+				if (btn == BTN_DOWN && s < MAX_EMEMORY - 1) { s++; tuneStation(s);  }
+			} else {
+				if (btn == BTN_UP) { freq -= freqStep; tune(); }
+				else
+				if (btn == BTN_DOWN) { freq += freqStep;  tune(); }
+				settings.lastFreq = freq;
+			}
 		}
 	}
 
