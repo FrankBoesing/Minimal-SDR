@@ -37,7 +37,7 @@
 #define LCD_DISPLAYSTART        18 //Start content at y = 20
 
 //-------------------------------------------------------
-
+extern int filter_bandwidth_default;
 extern settings_t settings;
 extern int mode;
 extern int ANR_on; // off: 0, automatic notch filter:1, automatic noise reduction: 2
@@ -50,6 +50,7 @@ extern int freq;
 //External functions
 void tune(void);
 void EEPROMsaveSettings(void);
+void calc_demod_filter(void);
 
 //-------------------------------------------------------
 
@@ -72,6 +73,7 @@ int freqStep; //-1 = eeprom-memory
 //-------------------------------------------------------
 //Forward declarations
 void printAt(int x, int y, const char * txt);
+void printCentered(int x, int y, int maxwidth, const char * txt);
 void printFreq(void);
 boolean tuneStation(int i);
 //-------------------------------------------------------
@@ -83,38 +85,45 @@ int _mTune(void);
 int _mM(void);
 int _mMode(void);
 int _mANR(void);
+int _mBandwAM(void);
 int _mSave(void);
 typedef int (*mf_t)(void);
 
 //Consts
-#define MENU_TIMEOUT 6000
-const int menuMaxX = 6;
+#define MENU_TIMEOUT 6000 //ms
+//const int menuMaxX = 6;
+const int menuMaxX = 5;
 const int menuMaxStrlen = 20;
 //Menu - Main
 const char menu[][menuMaxX][menuMaxStrlen] = {
-	{"Tuning",       "Mode", "Noise Reduction",  "Filter AM",     "Filter SSB",     "Settings"},
-	{"Memory",       "SAM",  "Off",              "Filter Bandw.", "Filter Bandw.",  "Save now"},
-	{"Step 1 kHz",   "AM",   "Notch",            "# of Taps",     "# of Taps",      ""},
-	{"Step 0.1 kHz", "LSB",  "Noise",            "",              "",               ""},
-	{"",             "USB",  "",                 "",              "",               ""}
+	{"Tuning",       "Mode", "Noise Reduction",  "Filter AM",   /*  "Filter SSB", */ "Settings"},
+	{"Memory",       "SAM",  "Off",              "Bandwidth",   /*  "Bandwidth",  */ "Save now"},
+	{"Step 1 kHz",   "AM",   "Notch",            "# of Taps",   /*  "# of Taps",  */ ""},
+	{"Step 0.1 kHz", "LSB",  "Noise",            "",            /*  "",           */ ""},
+	{"",             "USB",  "",                 "",            /*  "",           */ ""}
 };
 const int menuMaxY = sizeof(menu) / menuMaxX / menuMaxStrlen;
 
 //Menu - Main Functions
 const mf_t menufunc[menuMaxY * menuMaxX] = {
-	_mM,            _mM,     _mM,                _mM,               _mM,            _mM,
-	_mTune,         _mMode,  _mANR,              NULL,              NULL,           _mSave,
-	_mTune,         _mMode,  _mANR,              NULL,              NULL,           NULL,
-	_mTune,         _mMode,  _mANR,              NULL,              NULL,           NULL,
-	NULL,           _mMode,  NULL,               NULL,              NULL,           NULL
+	_mM,            _mM,     _mM,                _mM,           /*    _mM,   */ _mM,
+	_mTune,         _mMode,  _mANR,              _mBandwAM,     /*    NULL,   */ _mSave,
+	_mTune,         _mMode,  _mANR,              _mBandwAM,     /*    NULL,   */ NULL,
+	_mTune,         _mMode,  _mANR,              NULL,          /*    NULL,   */ NULL,
+	NULL,           _mMode,  NULL,               NULL,          /*    NULL,   */ NULL
 };
 
 //-------------------------------------------------------
+void printMenuTitle(int menuX, int menuY);
+
 int spectrum_on_old = Spectrum_on;
 int spectrumCounter = 0;
 int menuActive = -1; // -1 = Menu is inactive
 int menuLastActive = 0; //Last Active Main Menu
 int menuOld    = -99;
+boolean menuSubInitialized = false;
+
+unsigned long menuLastChange = millis();
 
 void menuExit(void) {
 	display.clearDisplay();
@@ -122,23 +131,25 @@ void menuExit(void) {
 	Spectrum_on = spectrum_on_old;
 	spectrumCounter = 0;
 	menuActive = menuOld = -1;
+	menuSubInitialized = false;
+}
+
+void menuResetTimeout(void) {
+	menuLastChange = millis();
 }
 
 void showMenu(void) {
 
-	static unsigned long lastChange = millis();
 	buttons();
-
 	if (menuActive < 0) return;
 
 	//Timeout
-	unsigned long t = millis();
-	if (t - lastChange > MENU_TIMEOUT && menuOld != -1) {
+	if (millis() - menuLastChange > MENU_TIMEOUT && menuOld != -1) {
 		menuExit();
 		return;
 	}
+
 	if (menuActive == menuOld) return;
-	lastChange = t;
 
 	const int lines = 3;
 
@@ -175,12 +186,7 @@ void showMenu(void) {
 
 	else { //submenu
 
-		//Title
-		display.setFont(Arial_12);
-		display.fillRoundRect(0, 0, display.width(), 16, 2, WHITE);
-		display.setTextColor(BLACK);
-		printAt(4, 1, menu[0][menuX]);
-		display.print(":");
+		printMenuTitle(menuX, 0);
 
 		if (menufunc[menuActive] != NULL) {
 			y += 2;
@@ -209,9 +215,17 @@ void showMenu(void) {
 	display.display();
 	display.setTextColor(WHITE);
 	menuOld = menuActive;
+	menuResetTimeout();
 }
 //-------------------------------------------------------
-
+void printMenuTitle(int menuX, int menuY) {
+	display.setFont(Arial_12);
+	display.fillRoundRect(0, 0, display.width(), 16, 2, WHITE);
+	display.setTextColor(BLACK);
+	printCentered(0, 1, display.width(), menu[menuY][menuX]);
+	display.setTextColor(WHITE);
+}
+//-------------------------------------------------------
 int _mM(void) {
 	//MainMenu - Navigation
 	int menuY = menuActive / menuMaxX;
@@ -241,6 +255,7 @@ int _mM(void) {
 }
 //-------------------------------------------------------
 int _MSubNav(void) {
+	Serial.println("msubnav");
 	//SubMenu - Navigation, Set Integer
 	int menuY = menuActive / menuMaxX;
 //	int menuX = menuActive - menuY * menuMaxX;
@@ -292,6 +307,7 @@ int _mMode(void) {
 	//return menu-y-position:
 	return mode + 1;
 }
+
 int _mANR(void) {
 	int t = _mInteger(ANR_on);
 	if (t > -1) {
@@ -310,7 +326,101 @@ int _mSave(void) {
 	}
 	return 1;
 }
+
+int _mBandwidthAM(void) {
+	const int step = 25;
+	int menuY = menuActive / menuMaxX;
+	int menuX = menuActive - menuY * menuMaxX;
+
+	if (btn == BTN_DOWN && filter_bandwidth + step <= 5000) {
+		filter_bandwidth += step;
+		calc_demod_filter();
+	}
+	else
+	if (btn == BTN_UP && filter_bandwidth - step > 100) {
+		filter_bandwidth -= step;
+		calc_demod_filter();
+	}
+
+	else
+	if (btn == BTN_CENTER  && menuSubInitialized ) { menuExit(); return 0;}
+
+	//Serial.printf("alt:%d neu:%d\n", menuOld, menuActive);
+
+
+	display.clearDisplay();
+	printMenuTitle(menuX, menuY);
+	printCentered(0, 20, display.width(), "Adjust Hz:");
+	char buf[9];
+	display.setFont(Digital7_20);
+	snprintf(buf, sizeof(buf) - 1, "%d", filter_bandwidth);
+	printCentered(0, 40, display.width(), buf);
+
+	display.display();
+	menuResetTimeout();
+	menuSubInitialized = true;
+
+	return 1;
+}
+
+int _mBandwTapsAM(void) {
+	const int step = 25;
+	int menuY = menuActive / menuMaxX;
+	int menuX = menuActive - menuY * menuMaxX;
+	Serial.println("xx");
+/*
+   if (btn == BTN_UP && ..)
+   else
+   if (btn == BTN_DOWN && .. ) ..
+   else
+ */
+	if (btn == BTN_CENTER  && menuSubInitialized ) { menuExit(); return 0;}
+
+	//Serial.printf("alt:%d neu:%d\n", menuOld, menuActive);
+	Serial.println("yy");
+
+	display.clearDisplay();
+	printMenuTitle(menuX, menuY);
+	printCentered(0, 20, display.width(), "Todo:");
+/*
+   char buf[9];
+   display.setFont(Digital7_20);
+   snprintf(buf, sizeof(buf) - 1, "%d", filter_bandwidth);
+   printCentered(0, 40, display.width(), buf);
+ */
+	printCentered(0, 40, display.width(), "Not Implemented");
+	display.display();
+	menuResetTimeout();
+	menuSubInitialized = true;
+
+	return 2;
+
+}
+
+int _mBandwAM(void) {
+	static int lastUsed = 1;
+	static int active = 0;
+
+	if (active == 0) {
+		int t = _mInteger(lastUsed);
+		if (t > -1) {
+			lastUsed = t;
+			active = t + 1;
+			Serial.println(t);
+		}
+	}
+
+	switch (active) {
+	case 1: active = _mBandwidthAM(); break;
+	case 2: active = _mBandwTapsAM(); break;
+	}
+
+	//return menu-y-position:
+	return lastUsed + 1;
+}
+
 //-------------------------------------------------------
+
 boolean tuneStation(int i) {
 	if (settings.station[i].freq != 0) {
 		settings.lastStation = i;
@@ -318,20 +428,27 @@ boolean tuneStation(int i) {
 		freq = settings.station[i].freq;
 		mode = settings.station[i].mode;
 		ANR_on = settings.station[i].notch;
-		Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
+
+		if (settings.station[i].filterBandwidth == 0)
+			filter_bandwidth = filter_bandwidth_default;
+		else
+			filter_bandwidth = settings.station[i].filterBandwidth;
+		calc_demod_filter();
 		tune();
+		Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
 		return true;
 	}
 	//Serial.println("Empty.");
 	return false;
 }
+
 //-------------------------------------------------------
+
 void serialUI(void) {
 	if (!Serial.available()) return;
 
 	static int input = 0;
 	char ch = Serial.read();
-
 	if (ch >= 'a' && ch <= ('a' + MAX_EMEMORY - 1)) {
 		tuneStation(ch - 'a');
 	}
@@ -357,34 +474,27 @@ void serialUI(void) {
 		tune();
 	}
 	else if (ch == 'N') {
-		if (ANR_on == 2)
-		{
+		if (ANR_on == 2) {
 			ANR_on = 0;
-			Serial.println("Auto-Notch OFF");
+//			Serial.println("Auto-Notch OFF");
 		}
-		else if (ANR_on == 0)
-		{
+		else if (ANR_on == 0) {
 			ANR_on = 1;
-			Serial.println("Auto-Notch ON");
-		}
-		else if (ANR_on == 1)
-		{
+//			Serial.println("Auto-Notch ON");
+		} else if (ANR_on == 1) {
 			ANR_on = 2;
-			Serial.println("Auto-Noise ON");
+//			Serial.println("Auto-Noise ON");
 		}
 		tune();
 	}
 #endif
 	else if (ch == 'G') {
-		if (AGC_on)
-		{
+		if (AGC_on) {
 			AGC_on = 0;
-			Serial.println("AGC OFF");
-		}
-		else
-		{
+//			Serial.println("AGC OFF");
+		} else {
 			AGC_on = 1;
-			Serial.println("AGC ON");
+//			Serial.println("AGC ON");
 		}
 		showFreq();
 	}
@@ -393,7 +503,8 @@ void serialUI(void) {
 	}
 	else if (ch >= '0' && ch <= '9') {
 		input = input * 10 + (ch - '0');
-	} else if (ch == '\r') {
+	}
+	else if (ch == '\r' || ch == '\n') {
 		if (input > 0) {
 			if (input < 1000) input *= 1000;
 			freq = input;
@@ -415,90 +526,66 @@ void showSpectrum(int16_t * data)
 #if defined(__MK64FX512__) || defined(__MK66FX1M0__)
 #define SPECTRUM_DELETE_COLOUR BLACK
 #define SPECTRUM_DRAW_COLOUR WHITE
+#define SPECTRUM_SMOOTH 0
 
 	if (!Spectrum_on) return;
+	if (--spectrumCounter > 0) return;
+	spectrumCounter = 25;
 
 	static const int spectrum_height = 16;
 	static const int spectrum_y = 0;
 	static const int spectrum_x = 0;
-
-	// FFT with 128 points
-	int16_t FFT_out [256];
-	int16_t FFT_in [128];
-
-	int16_t pixelnew[128];
 	int y_new, y1_new;
 	int y1_new_minus = 0;
 
-	spectrumCounter++;
-	if (spectrumCounter == 25)
-	{
-		spectrumCounter = 0;
-		memcpy(FFT_in, data, sizeof(FFT_in));
-		arm_rfft_q15(&FFT, FFT_in, FFT_out);
+	// FFT with 128 points
+	int16_t FFT_out [264]; //(FB)should be 128 .. Bug?
+	//int16_t FFT_in [128];
+#if SPECTRUM_SMOOTH
+	int16_t pixelnew[128];
+#endif
 
-		display.fillRect(0, spectrum_y, display.width(), spectrum_y + spectrum_height, SPECTRUM_DELETE_COLOUR);
+	arm_rfft_q15(&FFT, data, FFT_out);
+	//memcpy(FFT_in, data, sizeof(FFT_in));
+	//arm_rfft_q15(&FFT, FFT_in, FFT_out);
 
-		for (int16_t x = 0; x < 127; x++)
-		{
-			pixelnew[x] = abs(FFT_out[127 - x]) / 200;
+	display.fillRect(0, spectrum_y, display.width(), spectrum_height, SPECTRUM_DELETE_COLOUR);
 
-			if ((x > 1) && (x < 127))
+	for (int x = 0; x < 127; x++) {
+		y_new = abs(FFT_out[127 - x]) / 200;
+
+#if SPECTRUM_SMOOTH
+		if ((x > 1) && (x < 126)) {
 			// moving window - weighted average of 5 points of the spectrum to smooth spectrum in the frequency domain
 			// weights:  x: 50% , x-1/x+1: 36%, x+2/x-2: 14%
-			{
-				if (0)
-				{
-					y_new = pixelnew[x] * 0.5 + pixelnew[x - 1] * 0.18 + pixelnew[x + 1] * 0.18 + pixelnew[x - 2] * 0.07 + pixelnew[x + 2] * 0.07;
-				}
-				else
-				{
-					y_new = pixelnew[x];
-				}
-			}
-			else
-			{
-				y_new = pixelnew[x];
-			}
+			pixelnew[x] = y_new;
+			y_new = pixelnew[x] * 0.5f + pixelnew[x - 1] * 0.18f + pixelnew[x + 1] * 0.18f
+			        + pixelnew[x - 2] * 0.07f + pixelnew[x + 2] * 0.07f;
+		}
+#endif
 
+		if (y_new > (spectrum_height))
+			y_new = (spectrum_height);
+		y1_new  = (spectrum_y + spectrum_height - 1) - y_new;
 
-			if (y_new > (spectrum_height))
-			{
-				y_new = (spectrum_height);
-			}
-			y1_new  = (spectrum_y + spectrum_height - 1) - y_new;
+		if (x == 0)
+			y1_new_minus = y1_new;
+		else if (x == 127)
+			y1_new_minus = y1_new;
 
-			if (x == 0)
-			{
-				y1_new_minus = y1_new;
-			}
-			if (x == 127)
-			{
-				y1_new_minus = y1_new;
-			}
+		// DRAW NEW LINE/POINT
+		int t = y1_new - y1_new_minus;
 
-			{
+		if (t > 0)       // plot line upwards
+			display.drawFastVLine(x + spectrum_x, y1_new_minus, t, SPECTRUM_DRAW_COLOUR);
+		else if (t < 0)  // plot line downwards
+			display.drawFastVLine(x + spectrum_x, y1_new, -t, SPECTRUM_DRAW_COLOUR);
+		else             // write new pixel
+			display.drawPixel(x + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR);
 
-				// DRAW NEW LINE/POINT
-				if (y1_new - y1_new_minus > 1)
-				{                         // plot line upwards
-					display.drawFastVLine(x + spectrum_x, y1_new_minus + 1, y1_new - y1_new_minus, SPECTRUM_DRAW_COLOUR);
-				}
-				else if (y1_new - y1_new_minus < -1)
-				{                         // plot line downwards
-					display.drawFastVLine(x + spectrum_x, y1_new, y1_new_minus - y1_new, SPECTRUM_DRAW_COLOUR);
-				}
-				else
-				{
-					display.drawPixel(x + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR);                               // write new pixel
-				}
-
-				y1_new_minus = y1_new;
-
-			}
-		}             // end for loop
-		display.display(spectrum_height);
-	}
+		y1_new_minus = y1_new;
+	}               // end for loop
+	display.display(spectrum_height);
 #endif
 }
 
@@ -510,12 +597,22 @@ void printAt(int x, int y, const char * txt) {
 }
 
 //-------------------------------------------------------
-void printFreq(void) {
-	int n = 2;
-	if (freq >= 10000000) n = 1;
-	if (freq <   100000) display.print(" ");
-	if (freq <    10000) display.print(" ");
-	display.print(freq / 1000.0f, n);
+
+void printCentered(int x, int y, int maxwidth, const char * txt) {
+	int w;
+	if (maxwidth == 0) maxwidth = display.width();
+	w = display.measureTextWidth(txt, 0);
+	w = (maxwidth - w) >> 1;
+	display.setCursor(x + w, y);
+	display.print(txt);
+}
+
+//-------------------------------------------------------
+void printFreq(int x, int y, int maxwidth) {
+	char buf[9];
+	display.setFont(Digital7_24);
+	snprintf(buf, sizeof(buf) - 1, "%.2f", freq / 1000.0);
+	printCentered(x, y, maxwidth, buf);
 }
 //-------------------------------------------------------
 void showFreq(void) {
@@ -523,29 +620,20 @@ void showFreq(void) {
 	int y = LCD_DISPLAYSTART;
 	display.setTextColor(WHITE);
 	display.fillRect(0, y, display.width(), display.height() - y, BLACK);
-	int x = 0;
-	int size = 26;
 
-	//show frequency
-	//display.setFont(Digital7_24_Italic);
-	display.setFont(Digital7_24);
-	display.setCursor(x, y);
-	printFreq();
-
+	printFreq(0, y, 104);
+	int x = 106;
 	display.setFont(Arial_8);
-	x = 106;
 	printAt(x, y + 1, "kHz");
 	printAt(x, y + 14, modestr[mode]);       //Display Mode
 
-	y += size;
-	size = 10;
-
+	y += 26;
 	if (AGC_on) printAt(4 * 8, y, "AGC");       //AGC
 
 	if (ANR_on == 1) printAt(8 * 8, y, "Notch");
 	else if (ANR_on == 2) printAt(8 * 8, y, "Noise");
 
-	y += size;
+	y += 10;
 
 	if (settings.lastFreq > 0) {
 		//printAt(0, y, "Manual Setting");
@@ -590,7 +678,7 @@ void buttons(void) {
 			spectrum_on_old = Spectrum_on;
 		}
 		else
-		if (btn >= 0  && menuActive >= 0 && menufunc[menuActive] != NULL) {
+		if (menuActive >= 0 && menufunc[menuActive] != NULL) {
 			//Process Menufunction
 			mf_t func;
 			func = menufunc[menuActive];
@@ -648,7 +736,7 @@ void initUI(void) {
 	buffer = display.getBufAddr();
 	bufsize = display.getBufSize();
 
-	spectrumCounter = -500;
+	spectrumCounter = 500;
 }
 
 //-------------------------------------------------------
@@ -659,5 +747,5 @@ void UI(void) {
 //-------------------------------------------------------
 
 #if (SSD1306_LCDHEIGHT != 64)
-#error ("Height incorrect, please fix Adafruit_SSD1306.h!");
+#error ("Height incorrect, please fix Adafruit_SSD1306_i2ct3.h!");
 #endif

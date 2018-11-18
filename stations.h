@@ -5,12 +5,13 @@ enum  { SYNCAM, AM, LSB, USB };
 const char modestr[][5] = {"SAM", "AM", "LSB", "USB"};
 
 #define MAX_EMEMORY 26
-#define EEPROM_STORAGE_VERSION 5
+#define EEPROM_STORAGE_VERSION 6
 
 typedef struct {
 	int freq;
 	uint8_t mode;
 	uint8_t notch;
+	uint16_t filterBandwidth; //0 = default
 	char sname[33];
 } __attribute__((packed)) station_t;
 
@@ -19,6 +20,7 @@ typedef struct {
 	int lastFreq;
 	uint8_t lastMode;
 	uint8_t lastNotch;
+	uint16_t lastFilterBandwidth;
 	station_t station[MAX_EMEMORY];
 	uint8_t version;
 	uint16_t crc;
@@ -30,34 +32,35 @@ const settings_t settings_default =
 	/* lastFreq    */ 0,
 	/* lastMode    */ SYNCAM,
 	/* lastNotch   */ 0,
+	/* lastFilterBandwidth */ 2800,
 	{
-		/*  a */ { 183000, SYNCAM, 1, "Europe 1 FRA"},
-		/*  b */ { 216000, SYNCAM, 1, "Radio Monte Carlo FRA"},
-		/*  c */ { 234000, SYNCAM, 1, "RTLuxembourg FRA"},
-		/*  d */ { 531000, SYNCAM, 1, "Jil FM, Algeria"},
-		/*  e */ { 639000, SYNCAM, 1, "Cesky R"},
-		/*  f */ { 540000, SYNCAM, 1, "MR 1-Kossuth Radio HUN"},
-		/*  g */ { 576000, SYNCAM, 1, "Radio Horizont BEL"},
-		/*  h */ { 585000, SYNCAM, 1, "Radio Nacional ESP"},
-		/*  i */ { 621000, SYNCAM, 1, "RTBF international BEL"},
-		/*  j */ { 711000, SYNCAM, 1, "France Info"},
-		/*  k */ { 810000, SYNCAM, 1, "Radio Skopje 1 MKD"},
-		/*  l */ {1008000, SYNCAM, 1, "GrootNieusradio NL"},
-		/*  m */ {1053000, SYNCAM, 1, "TalkSport GB"},
-		/*  n */ {1215000, SYNCAM, 1, "G Absolute Radio GB"},
-		/*  o */ {1350000, SYNCAM, 1, "I AM Radio"},
-		/*  p */ {1467000, SYNCAM, 1, "Trans World Radio FRA"},
-		/*  q */ {1602000, SYNCAM, 1, "Radio Seagull NL"}, // On a ship in the Wadden Sea
-		/*  r */ {4810000, SYNCAM, 1, "Armenia Radio"},
-		/*  s */ {5025000, SYNCAM, 1, "Radio Rebelde, Kuba"},
-		/*  t */ {5970000, SYNCAM, 1, "China Radio Intl"},
-		/*  u */ {5980000, SYNCAM, 1, "Turkey"},
-		/*  v */ {6040000, SYNCAM, 1, "Radio Romania Intl"},
-		/*  w */ {9420000, SYNCAM, 1, "Greece"},
+		/*  a */ { 183000, SYNCAM, 1, 0, "Europe 1 FRA"},
+		/*  b */ { 216000, SYNCAM, 1, 0, "Radio Monte Carlo FRA"},
+		/*  c */ { 234000, SYNCAM, 1, 0, "RTLuxembourg FRA"},
+		/*  d */ { 531000, SYNCAM, 1, 0,  "Jil FM, Algeria"},
+		/*  e */ { 639000, SYNCAM, 1, 0,  "Cesky R"},
+		/*  f */ { 540000, SYNCAM, 1, 0,  "MR 1-Kossuth Radio HUN"},
+		/*  g */ { 576000, SYNCAM, 1, 0,  "Radio Horizont BEL"},
+		/*  h */ { 585000, SYNCAM, 1, 0,  "Radio Nacional ESP"},
+		/*  j */ { 711000, SYNCAM, 1, 0,  "France Info"},
+		/*  i */ { 621000, SYNCAM, 1, 0,  "RTBF international BEL"},
+		/*  k */ { 810000, SYNCAM, 1, 0,  "Radio Skopje 1 MKD"},
+		/*  l */ {1008000, SYNCAM, 1, 0,  "GrootNieusradio NL"},
+		/*  m */ {1053000, SYNCAM, 1, 0,  "TalkSport GB"},
+		/*  n */ {1215000, SYNCAM, 1, 0,  "G Absolute Radio GB"},
+		/*  o */ {1350000, SYNCAM, 1, 0,  "I AM Radio"},
+		/*  p */ {1467000, SYNCAM, 1, 0,  "Trans World Radio FRA"},
+		/*  q */ {1602000, SYNCAM, 1, 0,  "Radio Seagull NL"}, // On a ship in the Wadden Sea
+		/*  r */ {4810000, SYNCAM, 1, 0,  "Armenia Radio"},
+		/*  s */ {5025000, SYNCAM, 1, 0,  "Radio Rebelde, Kuba"},
+		/*  t */ {5970000, SYNCAM, 1, 0,  "China Radio Intl"},
+		/*  u */ {5980000, SYNCAM, 1, 0,  "Turkey"},
+		/*  v */ {6040000, SYNCAM, 1, 0,  "Radio Romania Intl"},
+		/*  w */ {9420000, SYNCAM, 1, 0,  "Greece"},
 
-		/*  x */ { 129100, SYNCAM, 1, "DCF49"},
-		/*  y */ {9995500, SYNCAM, 0, "Russian time signal"},
-		/*  z */ {  77500, AM,     0, "DCF77"}
+		/*  x */ { 129100, SYNCAM, 1, 600,  "DCF49"},
+		/*  y */ {9995500, SYNCAM, 0, 600, "Russian time signal"},
+		/*  z */ {  77500, AM,     0, 600,  "DCF77"}
 	},
 	/* version    */ EEPROM_STORAGE_VERSION,
 	/* crc        */ 0x4711

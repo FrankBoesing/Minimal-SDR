@@ -90,16 +90,17 @@ AudioConnection patchCord5(amp_dac, dac1);
 #define I2S_FREQ_MAX    18000000
 #define I2S0_TCR2_DIV   0
 
+int filter_bandwidth_default = 2800;
+const float AGC_start = 0.25f;
+const float AGC_Max   = 40.0f;
+
 settings_t settings;
 int mode              = AM;
 int ANR_on            = 0;         // off: 0, automatic notch filter:1, automatic noise reduction: 2
 int AGC_on            = 1;         // automatic gain control ON/OFF
 int Spectrum_on       = 1;         // spektrum display on/off
-int filter_bandwidth  = 2800;
+int filter_bandwidth  = filter_bandwidth_default;
 int freq;
-
-const float AGC_start = 0.25f;
-const float AGC_Max   = 40.0f;
 float AGC_val         = AGC_start;      // agc actual value
 
 const uint8_t clk_errcmp  = 1;       // en-/disable clk-error compensation
@@ -133,6 +134,7 @@ const int16_t FIR_Q_coeffs[FIR_SSB_num_taps] = {20, 28, 29, 21, 3, -19, -35, -36
 unsigned long time_needed     = 0;
 unsigned long time_needed_max = 0;
 
+void calc_demod_filter(void);
 unsigned long demodulation(void);
 //-------------------------------------------------------
 
@@ -149,6 +151,16 @@ uint16_t settingsCrc(void) {
 void EEPROMsaveSettings(void) {
 	settings.lastMode = mode;
 	settings.lastNotch = ANR_on;
+	settings.lastFilterBandwidth = filter_bandwidth;
+
+	//If tuned to a saved station, overwrite its settings:
+	if (settings.lastFreq == 0) {
+		int i = settings.lastStation;
+		settings.station[i].mode = mode;
+		settings.station[i].notch = ANR_on;
+		settings.station[i].filterBandwidth = filter_bandwidth;
+	}
+
 	settings.crc = settingsCrc();
 	eeprom_write_block(&settings, 0, sizeof(settings_t));
 	Serial.println("Settings saved");
@@ -175,6 +187,7 @@ void initEEPROM(void) {
 	Serial.printf("Last Station: %d\n", settings.lastStation);
 	Serial.printf("Last Freq: %d\n", settings.lastFreq);
 	Serial.printf("Last Mode: %d\n", settings.lastMode);
+	Serial.printf("Last Bandwidth: %d\n", settings.lastFilterBandwidth);
 	int i = 0;
 	while (i < MAX_EMEMORY) {
 		if (settings.station[i].freq != 0)
@@ -193,15 +206,23 @@ void loadLastSettings(void) {
 		freq = settings.lastFreq;
 		mode = settings.lastMode;
 		ANR_on = settings.lastNotch;
+		filter_bandwidth = settings.lastFilterBandwidth;
 	} else {
 		int i = settings.lastStation;
 		freq = settings.station[i].freq;
 		mode = settings.station[i].mode;
 		ANR_on = settings.station[i].notch;
+		if (settings.station[i].filterBandwidth == 0)
+			filter_bandwidth = filter_bandwidth_default;
+		else
+			filter_bandwidth = settings.station[i].filterBandwidth;
 	}
 
 }
-
+//-------------------------------------------------------
+void calc_demod_filter(void) {
+	calc_FIR_coeffs (FIR_AM_coeffs, FIR_AM_num_taps, (float32_t)filter_bandwidth, 70, 0, 0.0, (float32_t)SAMPLE_RATE);
+}
 //-------------------------------------------------------
 
 #define PDB_CONFIG (PDB_SC_TRGSEL(15) | PDB_SC_PDBEN | PDB_SC_CONT | PDB_SC_PDBIE | PDB_SC_DMAEN)
@@ -382,7 +403,7 @@ void setup()   {
 
 	amp_dac.gain(1.0); //amplifier before DAC
 
-	calc_FIR_coeffs (FIR_AM_coeffs, FIR_AM_num_taps, (float32_t)filter_bandwidth, 70, 0, 0.0, (float32_t)SAMPLE_RATE);
+	calc_demod_filter();
 	init_FIR();
 
 	AudioProcessorUsageMaxReset();
