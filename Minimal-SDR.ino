@@ -84,8 +84,10 @@ AudioConnection patchCord5(amp_dac, dac1);
 #define _IF             6000        // intermediate frequency
 #define SAMPLE_RATE     (_IF * 4)   // new Audio-Library sample rate
 #define CORR_FACT       (AUDIO_SAMPLE_RATE_EXACT / SAMPLE_RATE) // Audio-Library correction factor
+#define FREQ_MIN        16000   // Hz
+#define FREQ_MAX        9999500 // Hz
 
-#define I2S_FREQ_MAX    36000000
+#define I2S_FREQ_MAX    18000000
 #define I2S0_TCR2_DIV   0
 
 settings_t settings;
@@ -304,10 +306,13 @@ void initI2S(void)
 //-------------------------------------------------------
 float pdb_freq_actual;
 
-void tune(int freq) {
+void tune() {
 	float freq_actual;
 	float freq_diff;
 	float pdb_freq;
+
+	if (freq < FREQ_MIN) freq = FREQ_MIN;
+	if (freq > FREQ_MAX) freq = FREQ_MAX;
 
 	AudioNoInterrupts();
 	PDB0_SC = 0;
@@ -335,7 +340,7 @@ void tune(int freq) {
 	Serial.printf("Tune: %.1fkHz\n", (float)freq / 1000.0f);
 	//Serial.printf("BCLK Soll: %f ist: %f Diff: %fHz\n", freq, freq_actual - _IF, freq_diff);
 	//Serial.printf("PDB  Soll: %f ist: %f Diff: %fHz\n", pdb_freq, pdb_freq_actual, pdb_freq_actual - pdb_freq);
-	Serial.println();
+	//Serial.println();
 #endif
 
 	AudioProcessorUsageMaxReset();
@@ -348,7 +353,6 @@ void tune(int freq) {
 void setup()   {
 	AudioMemory(AUDIOMEMORY);
 	PDB0_SC = 0; //Stop PDB
-
 
 	Serial.println("Minimal SDR");
 	Serial.printf("F_CPU: %dMHz F_BUS: %dMHz\n", (int) (F_CPU / 1000000), (int) (F_BUS / 1000000));
@@ -374,7 +378,7 @@ void setup()   {
 	//biquad2_dac.setLowpass(0, cutoff_freq, 0.54);
 	//biquad2_dac.setLowpass(1, cutoff_freq, 1.3);
 	//biquad2_dac.setLowpass(2, cutoff_freq, 0.54);
-	biquad2_dac.setNotch(0, SAMPLE_RATE / 8 * CORR_FACT, 15.0); // eliminates some birdy
+	//biquad2_dac.setNotch(0, SAMPLE_RATE / 8 * CORR_FACT, 15.0); // eliminates some birdy
 
 	amp_dac.gain(1.0); //amplifier before DAC
 
@@ -384,7 +388,7 @@ void setup()   {
 	AudioProcessorUsageMaxReset();
 	loadLastSettings();
 
-	tune(freq);
+	tune();
 	queue_adc.begin();
 }
 
