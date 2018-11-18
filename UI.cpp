@@ -37,7 +37,7 @@
 #define LCD_DISPLAYSTART        18 //Start content at y = 20
 
 //-------------------------------------------------------
-
+extern int filter_bandwidth_default;
 extern settings_t settings;
 extern int mode;
 extern int ANR_on; // off: 0, automatic notch filter:1, automatic noise reduction: 2
@@ -50,6 +50,7 @@ extern int freq;
 //External functions
 void tune(void);
 void EEPROMsaveSettings(void);
+void calc_demod_filter(void);
 
 //-------------------------------------------------------
 
@@ -72,6 +73,7 @@ int freqStep; //-1 = eeprom-memory
 //-------------------------------------------------------
 //Forward declarations
 void printAt(int x, int y, const char * txt);
+void printCentered(int x, int y, int maxwidth, const char * txt);
 void printFreq(void);
 boolean tuneStation(int i);
 //-------------------------------------------------------
@@ -83,38 +85,45 @@ int _mTune(void);
 int _mM(void);
 int _mMode(void);
 int _mANR(void);
+int _mBandwAM(void);
 int _mSave(void);
 typedef int (*mf_t)(void);
 
 //Consts
-#define MENU_TIMEOUT 6000
-const int menuMaxX = 6;
+#define MENU_TIMEOUT 6000 //ms
+//const int menuMaxX = 6;
+const int menuMaxX = 5;
 const int menuMaxStrlen = 20;
 //Menu - Main
 const char menu[][menuMaxX][menuMaxStrlen] = {
-	{"Tuning",       "Mode", "Noise Reduction",  "Filter AM",     "Filter SSB",     "Settings"},
-	{"Memory",       "SAM",  "Off",              "Filter Bandw.", "Filter Bandw.",  "Save now"},
-	{"Step 1 kHz",   "AM",   "Notch",            "# of Taps",     "# of Taps",      ""},
-	{"Step 0.1 kHz", "LSB",  "Noise",            "",              "",               ""},
-	{"",             "USB",  "",                 "",              "",               ""}
+	{"Tuning",       "Mode", "Noise Reduction",  "Filter AM",   /*  "Filter SSB", */ "Settings"},
+	{"Memory",       "SAM",  "Off",              "Bandwidth",   /*  "Bandwidth",  */ "Save now"},
+	{"Step 1 kHz",   "AM",   "Notch",            "# of Taps",   /*  "# of Taps",  */ ""},
+	{"Step 0.1 kHz", "LSB",  "Noise",            "",            /*  "",           */ ""},
+	{"",             "USB",  "",                 "",            /*  "",           */ ""}
 };
 const int menuMaxY = sizeof(menu) / menuMaxX / menuMaxStrlen;
 
 //Menu - Main Functions
 const mf_t menufunc[menuMaxY * menuMaxX] = {
-	_mM,            _mM,     _mM,                _mM,               _mM,            _mM,
-	_mTune,         _mMode,  _mANR,              NULL,              NULL,           _mSave,
-	_mTune,         _mMode,  _mANR,              NULL,              NULL,           NULL,
-	_mTune,         _mMode,  _mANR,              NULL,              NULL,           NULL,
-	NULL,           _mMode,  NULL,               NULL,              NULL,           NULL
+	_mM,            _mM,     _mM,                _mM,           /*    _mM,   */ _mM,
+	_mTune,         _mMode,  _mANR,              _mBandwAM,     /*    NULL,   */ _mSave,
+	_mTune,         _mMode,  _mANR,              _mBandwAM,     /*    NULL,   */ NULL,
+	_mTune,         _mMode,  _mANR,              NULL,          /*    NULL,   */ NULL,
+	NULL,           _mMode,  NULL,               NULL,          /*    NULL,   */ NULL
 };
 
 //-------------------------------------------------------
+void printMenuTitle(int menuX, int menuY);
+
 int spectrum_on_old = Spectrum_on;
 int spectrumCounter = 0;
 int menuActive = -1; // -1 = Menu is inactive
 int menuLastActive = 0; //Last Active Main Menu
 int menuOld    = -99;
+boolean menuSubInitialized = false;
+
+unsigned long menuLastChange = millis();
 
 void menuExit(void) {
 	display.clearDisplay();
@@ -122,23 +131,25 @@ void menuExit(void) {
 	Spectrum_on = spectrum_on_old;
 	spectrumCounter = 0;
 	menuActive = menuOld = -1;
+	menuSubInitialized = false;
+}
+
+void menuResetTimeout(void) {
+	menuLastChange = millis();
 }
 
 void showMenu(void) {
 
-	static unsigned long lastChange = millis();
 	buttons();
-
 	if (menuActive < 0) return;
 
 	//Timeout
-	unsigned long t = millis();
-	if (t - lastChange > MENU_TIMEOUT && menuOld != -1) {
+	if (millis() - menuLastChange > MENU_TIMEOUT && menuOld != -1) {
 		menuExit();
 		return;
 	}
+
 	if (menuActive == menuOld) return;
-	lastChange = t;
 
 	const int lines = 3;
 
@@ -175,12 +186,7 @@ void showMenu(void) {
 
 	else { //submenu
 
-		//Title
-		display.setFont(Arial_12);
-		display.fillRoundRect(0, 0, display.width(), 16, 2, WHITE);
-		display.setTextColor(BLACK);
-		printAt(4, 1, menu[0][menuX]);
-		display.print(":");
+		printMenuTitle(menuX, 0);
 
 		if (menufunc[menuActive] != NULL) {
 			y += 2;
@@ -209,9 +215,17 @@ void showMenu(void) {
 	display.display();
 	display.setTextColor(WHITE);
 	menuOld = menuActive;
+	menuResetTimeout();
 }
 //-------------------------------------------------------
-
+void printMenuTitle(int menuX, int menuY) {
+	display.setFont(Arial_12);
+	display.fillRoundRect(0, 0, display.width(), 16, 2, WHITE);
+	display.setTextColor(BLACK);
+	printCentered(0, 1, display.width(), menu[menuY][menuX]);
+	display.setTextColor(WHITE);
+}
+//-------------------------------------------------------
 int _mM(void) {
 	//MainMenu - Navigation
 	int menuY = menuActive / menuMaxX;
@@ -241,6 +255,7 @@ int _mM(void) {
 }
 //-------------------------------------------------------
 int _MSubNav(void) {
+	Serial.println("msubnav");
 	//SubMenu - Navigation, Set Integer
 	int menuY = menuActive / menuMaxX;
 //	int menuX = menuActive - menuY * menuMaxX;
@@ -292,6 +307,7 @@ int _mMode(void) {
 	//return menu-y-position:
 	return mode + 1;
 }
+
 int _mANR(void) {
 	int t = _mInteger(ANR_on);
 	if (t > -1) {
@@ -310,7 +326,101 @@ int _mSave(void) {
 	}
 	return 1;
 }
+
+int _mBandwidthAM(void) {
+	const int step = 25;
+	int menuY = menuActive / menuMaxX;
+	int menuX = menuActive - menuY * menuMaxX;
+
+	if (btn == BTN_DOWN && filter_bandwidth + step <= 5000) {
+		filter_bandwidth += step;
+		calc_demod_filter();
+	}
+	else
+	if (btn == BTN_UP && filter_bandwidth - step > 100) {
+		filter_bandwidth -= step;
+		calc_demod_filter();
+	}
+
+	else
+	if (btn == BTN_CENTER  && menuSubInitialized ) { menuExit(); return 0;}
+
+	//Serial.printf("alt:%d neu:%d\n", menuOld, menuActive);
+
+
+	display.clearDisplay();
+	printMenuTitle(menuX, menuY);
+	printCentered(0, 20, display.width(), "Adjust Hz:");
+	char buf[9];
+	display.setFont(Digital7_20);
+	snprintf(buf, sizeof(buf) - 1, "%d", filter_bandwidth);
+	printCentered(0, 40, display.width(), buf);
+
+	display.display();
+	menuResetTimeout();
+	menuSubInitialized = true;
+
+	return 1;
+}
+
+int _mBandwTapsAM(void) {
+	const int step = 25;
+	int menuY = menuActive / menuMaxX;
+	int menuX = menuActive - menuY * menuMaxX;
+	Serial.println("xx");
+/*
+   if (btn == BTN_UP && ..)
+   else
+   if (btn == BTN_DOWN && .. ) ..
+   else
+ */
+	if (btn == BTN_CENTER  && menuSubInitialized ) { menuExit(); return 0;}
+
+	//Serial.printf("alt:%d neu:%d\n", menuOld, menuActive);
+	Serial.println("yy");
+
+	display.clearDisplay();
+	printMenuTitle(menuX, menuY);
+	printCentered(0, 20, display.width(), "Todo:");
+/*
+   char buf[9];
+   display.setFont(Digital7_20);
+   snprintf(buf, sizeof(buf) - 1, "%d", filter_bandwidth);
+   printCentered(0, 40, display.width(), buf);
+ */
+	printCentered(0, 40, display.width(), "Not Implemented");
+	display.display();
+	menuResetTimeout();
+	menuSubInitialized = true;
+
+	return 2;
+
+}
+
+int _mBandwAM(void) {
+	static int lastUsed = 1;
+	static int active = 0;
+
+	if (active == 0) {
+		int t = _mInteger(lastUsed);
+		if (t > -1) {
+			lastUsed = t;
+			active = t + 1;
+			Serial.println(t);
+		}
+	}
+
+	switch (active) {
+	case 1: active = _mBandwidthAM(); break;
+	case 2: active = _mBandwTapsAM(); break;
+	}
+
+	//return menu-y-position:
+	return lastUsed + 1;
+}
+
 //-------------------------------------------------------
+
 boolean tuneStation(int i) {
 	if (settings.station[i].freq != 0) {
 		settings.lastStation = i;
@@ -318,13 +428,20 @@ boolean tuneStation(int i) {
 		freq = settings.station[i].freq;
 		mode = settings.station[i].mode;
 		ANR_on = settings.station[i].notch;
-		Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
+
+		if (settings.station[i].filterBandwidth == 0)
+			filter_bandwidth = filter_bandwidth_default;
+		else
+			filter_bandwidth = settings.station[i].filterBandwidth;
+		calc_demod_filter();
 		tune();
+		Serial.printf("%c: %8d\t%s\t%s\n", 'a' + i, settings.station[i].freq, modestr[settings.station[i].mode], settings.station[i].sname);
 		return true;
 	}
 	//Serial.println("Empty.");
 	return false;
 }
+
 //-------------------------------------------------------
 
 void serialUI(void) {
@@ -412,7 +529,7 @@ void showSpectrum(int16_t * data)
 #define SPECTRUM_SMOOTH 0
 
 	if (!Spectrum_on) return;
-	if (--spectrumCounter != 0) return;
+	if (--spectrumCounter > 0) return;
 	spectrumCounter = 25;
 
 	static const int spectrum_height = 16;
@@ -480,15 +597,22 @@ void printAt(int x, int y, const char * txt) {
 }
 
 //-------------------------------------------------------
-void printFreq(int x, int y, int maxwidth) {
-	char buf[9];
+
+void printCentered(int x, int y, int maxwidth, const char * txt) {
 	int w;
-	display.setFont(Digital7_24);
-	snprintf(buf, sizeof(buf) - 1, "%.2f", freq / 1000.0);
-	w = display.measureTextWidth(buf, 0);
+	if (maxwidth == 0) maxwidth = display.width();
+	w = display.measureTextWidth(txt, 0);
 	w = (maxwidth - w) >> 1;
 	display.setCursor(x + w, y);
-	display.print(buf);
+	display.print(txt);
+}
+
+//-------------------------------------------------------
+void printFreq(int x, int y, int maxwidth) {
+	char buf[9];
+	display.setFont(Digital7_24);
+	snprintf(buf, sizeof(buf) - 1, "%.2f", freq / 1000.0);
+	printCentered(x, y, maxwidth, buf);
 }
 //-------------------------------------------------------
 void showFreq(void) {
@@ -554,7 +678,7 @@ void buttons(void) {
 			spectrum_on_old = Spectrum_on;
 		}
 		else
-		if (btn >= 0  && menuActive >= 0 && menufunc[menuActive] != NULL) {
+		if (menuActive >= 0 && menufunc[menuActive] != NULL) {
 			//Process Menufunction
 			mf_t func;
 			func = menufunc[menuActive];
@@ -623,5 +747,5 @@ void UI(void) {
 //-------------------------------------------------------
 
 #if (SSD1306_LCDHEIGHT != 64)
-#error ("Height incorrect, please fix Adafruit_SSD1306.h!");
+#error ("Height incorrect, please fix Adafruit_SSD1306_i2ct3.h!");
 #endif
