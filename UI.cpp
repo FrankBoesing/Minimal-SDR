@@ -326,12 +326,12 @@ boolean tuneStation(int i) {
 	return false;
 }
 //-------------------------------------------------------
+
 void serialUI(void) {
 	if (!Serial.available()) return;
 
 	static int input = 0;
 	char ch = Serial.read();
-
 	if (ch >= 'a' && ch <= ('a' + MAX_EMEMORY - 1)) {
 		tuneStation(ch - 'a');
 	}
@@ -357,34 +357,27 @@ void serialUI(void) {
 		tune();
 	}
 	else if (ch == 'N') {
-		if (ANR_on == 2)
-		{
+		if (ANR_on == 2) {
 			ANR_on = 0;
-			Serial.println("Auto-Notch OFF");
+//			Serial.println("Auto-Notch OFF");
 		}
-		else if (ANR_on == 0)
-		{
+		else if (ANR_on == 0) {
 			ANR_on = 1;
-			Serial.println("Auto-Notch ON");
-		}
-		else if (ANR_on == 1)
-		{
+//			Serial.println("Auto-Notch ON");
+		} else if (ANR_on == 1) {
 			ANR_on = 2;
-			Serial.println("Auto-Noise ON");
+//			Serial.println("Auto-Noise ON");
 		}
 		tune();
 	}
 #endif
 	else if (ch == 'G') {
-		if (AGC_on)
-		{
+		if (AGC_on) {
 			AGC_on = 0;
-			Serial.println("AGC OFF");
-		}
-		else
-		{
+//			Serial.println("AGC OFF");
+		} else {
 			AGC_on = 1;
-			Serial.println("AGC ON");
+//			Serial.println("AGC ON");
 		}
 		showFreq();
 	}
@@ -393,7 +386,8 @@ void serialUI(void) {
 	}
 	else if (ch >= '0' && ch <= '9') {
 		input = input * 10 + (ch - '0');
-	} else if (ch == '\r') {
+	}
+	else if (ch == '\r' || ch == '\n') {
 		if (input > 0) {
 			if (input < 1000) input *= 1000;
 			freq = input;
@@ -415,90 +409,66 @@ void showSpectrum(int16_t * data)
 #if defined(__MK64FX512__) || defined(__MK66FX1M0__)
 #define SPECTRUM_DELETE_COLOUR BLACK
 #define SPECTRUM_DRAW_COLOUR WHITE
+#define SPECTRUM_SMOOTH 0
 
 	if (!Spectrum_on) return;
+	if (--spectrumCounter != 0) return;
+	spectrumCounter = 25;
 
 	static const int spectrum_height = 16;
 	static const int spectrum_y = 0;
 	static const int spectrum_x = 0;
-
-	// FFT with 128 points
-	int16_t FFT_out [256];
-	int16_t FFT_in [128];
-
-	int16_t pixelnew[128];
 	int y_new, y1_new;
 	int y1_new_minus = 0;
 
-	spectrumCounter++;
-	if (spectrumCounter == 25)
-	{
-		spectrumCounter = 0;
-		memcpy(FFT_in, data, sizeof(FFT_in));
-		arm_rfft_q15(&FFT, FFT_in, FFT_out);
+	// FFT with 128 points
+	int16_t FFT_out [264]; //(FB)should be 128 .. Bug?
+	//int16_t FFT_in [128];
+#if SPECTRUM_SMOOTH
+	int16_t pixelnew[128];
+#endif
 
-		display.fillRect(0, spectrum_y, display.width(), spectrum_y + spectrum_height, SPECTRUM_DELETE_COLOUR);
+	arm_rfft_q15(&FFT, data, FFT_out);
+	//memcpy(FFT_in, data, sizeof(FFT_in));
+	//arm_rfft_q15(&FFT, FFT_in, FFT_out);
 
-		for (int16_t x = 0; x < 127; x++)
-		{
-			pixelnew[x] = abs(FFT_out[127 - x]) / 200;
+	display.fillRect(0, spectrum_y, display.width(), spectrum_height, SPECTRUM_DELETE_COLOUR);
 
-			if ((x > 1) && (x < 127))
+	for (int x = 0; x < 127; x++) {
+		y_new = abs(FFT_out[127 - x]) / 200;
+
+#if SPECTRUM_SMOOTH
+		if ((x > 1) && (x < 126)) {
 			// moving window - weighted average of 5 points of the spectrum to smooth spectrum in the frequency domain
 			// weights:  x: 50% , x-1/x+1: 36%, x+2/x-2: 14%
-			{
-				if (0)
-				{
-					y_new = pixelnew[x] * 0.5 + pixelnew[x - 1] * 0.18 + pixelnew[x + 1] * 0.18 + pixelnew[x - 2] * 0.07 + pixelnew[x + 2] * 0.07;
-				}
-				else
-				{
-					y_new = pixelnew[x];
-				}
-			}
-			else
-			{
-				y_new = pixelnew[x];
-			}
+			pixelnew[x] = y_new;
+			y_new = pixelnew[x] * 0.5f + pixelnew[x - 1] * 0.18f + pixelnew[x + 1] * 0.18f
+			        + pixelnew[x - 2] * 0.07f + pixelnew[x + 2] * 0.07f;
+		}
+#endif
 
+		if (y_new > (spectrum_height))
+			y_new = (spectrum_height);
+		y1_new  = (spectrum_y + spectrum_height - 1) - y_new;
 
-			if (y_new > (spectrum_height))
-			{
-				y_new = (spectrum_height);
-			}
-			y1_new  = (spectrum_y + spectrum_height - 1) - y_new;
+		if (x == 0)
+			y1_new_minus = y1_new;
+		else if (x == 127)
+			y1_new_minus = y1_new;
 
-			if (x == 0)
-			{
-				y1_new_minus = y1_new;
-			}
-			if (x == 127)
-			{
-				y1_new_minus = y1_new;
-			}
+		// DRAW NEW LINE/POINT
+		int t = y1_new - y1_new_minus;
 
-			{
+		if (t > 0)       // plot line upwards
+			display.drawFastVLine(x + spectrum_x, y1_new_minus, t, SPECTRUM_DRAW_COLOUR);
+		else if (t < 0)  // plot line downwards
+			display.drawFastVLine(x + spectrum_x, y1_new, -t, SPECTRUM_DRAW_COLOUR);
+		else             // write new pixel
+			display.drawPixel(x + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR);
 
-				// DRAW NEW LINE/POINT
-				if (y1_new - y1_new_minus > 1)
-				{                         // plot line upwards
-					display.drawFastVLine(x + spectrum_x, y1_new_minus + 1, y1_new - y1_new_minus, SPECTRUM_DRAW_COLOUR);
-				}
-				else if (y1_new - y1_new_minus < -1)
-				{                         // plot line downwards
-					display.drawFastVLine(x + spectrum_x, y1_new, y1_new_minus - y1_new, SPECTRUM_DRAW_COLOUR);
-				}
-				else
-				{
-					display.drawPixel(x + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR);                               // write new pixel
-				}
-
-				y1_new_minus = y1_new;
-
-			}
-		}             // end for loop
-		display.display(spectrum_height);
-	}
+		y1_new_minus = y1_new;
+	}               // end for loop
+	display.display(spectrum_height);
 #endif
 }
 
@@ -510,12 +480,15 @@ void printAt(int x, int y, const char * txt) {
 }
 
 //-------------------------------------------------------
-void printFreq(void) {
-	int n = 2;
-	if (freq >= 10000000) n = 1;
-	if (freq <   100000) display.print(" ");
-	if (freq <    10000) display.print(" ");
-	display.print(freq / 1000.0f, n);
+void printFreq(int x, int y, int maxwidth) {
+	char buf[9];
+	int w;
+	display.setFont(Digital7_24);
+	snprintf(buf, sizeof(buf) - 1, "%.2f", freq / 1000.0);
+	w = display.measureTextWidth(buf, 0);
+	w = (maxwidth - w) >> 1;
+	display.setCursor(x + w, y);
+	display.print(buf);
 }
 //-------------------------------------------------------
 void showFreq(void) {
@@ -523,29 +496,20 @@ void showFreq(void) {
 	int y = LCD_DISPLAYSTART;
 	display.setTextColor(WHITE);
 	display.fillRect(0, y, display.width(), display.height() - y, BLACK);
-	int x = 0;
-	int size = 26;
 
-	//show frequency
-	//display.setFont(Digital7_24_Italic);
-	display.setFont(Digital7_24);
-	display.setCursor(x, y);
-	printFreq();
-
+	printFreq(0, y, 104);
+	int x = 106;
 	display.setFont(Arial_8);
-	x = 106;
 	printAt(x, y + 1, "kHz");
 	printAt(x, y + 14, modestr[mode]);       //Display Mode
 
-	y += size;
-	size = 10;
-
+	y += 26;
 	if (AGC_on) printAt(4 * 8, y, "AGC");       //AGC
 
 	if (ANR_on == 1) printAt(8 * 8, y, "Notch");
 	else if (ANR_on == 2) printAt(8 * 8, y, "Noise");
 
-	y += size;
+	y += 10;
 
 	if (settings.lastFreq > 0) {
 		//printAt(0, y, "Manual Setting");
@@ -648,7 +612,7 @@ void initUI(void) {
 	buffer = display.getBufAddr();
 	bufsize = display.getBufSize();
 
-	spectrumCounter = -500;
+	spectrumCounter = 500;
 }
 
 //-------------------------------------------------------
