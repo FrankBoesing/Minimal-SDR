@@ -217,7 +217,7 @@ void loadLastSettings(void) {
 		else
 			filter_bandwidth = settings.station[i].filterBandwidth;
 	}
-
+	calc_demod_filter();
 }
 //-------------------------------------------------------
 void calc_demod_filter(void) {
@@ -403,7 +403,6 @@ void setup()   {
 
 	amp_dac.gain(1.0); //amplifier before DAC
 
-	calc_demod_filter();
 	init_FIR();
 
 	AudioProcessorUsageMaxReset();
