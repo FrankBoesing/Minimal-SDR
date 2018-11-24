@@ -114,22 +114,18 @@ q15_t FIR_I_state [MAX_num_taps + AUDIO_BLOCK_SAMPLES];
 q15_t FIR_Q_state [MAX_num_taps + AUDIO_BLOCK_SAMPLES];
 int16_t FIR_AM_coeffs[FIR_AM_num_taps];
 
-//int16_t FIR_I_coeffs[FIR_num_taps];
-//int16_t FIR_Q_coeffs[FIR_num_taps];
 
 // +45°, 86 taps, Fc=1.33kHz, BW=1.92kHz, Kaiser beta = 1.8, raised cosine 0.88
-const int16_t FIR_I_coeffs[FIR_SSB_num_taps] = { -3, -16, -33, -52, -63, -63, -48, -25, -5, -4, -30, -85, -157, -221, -253, -233, -163, -66, 17, 41, -20, -164, -349, -506, -561, -468, -231, 83, 365, 496, 395, 65, -392, -791, -915, -586, 264, 1549, 3035, 4388, 5262, 5400, 4710, 3298, 1448, -458, -2043, -3030, -3312, -2964, -2203, -1314, -559, -108, -8, -185, -496, -780, -922, -878, -676, -399, -141, 25, 72, 16, -93, -196, -250, -237, -167, -72, 15, 68, 80, 57, 18, -17, -36, -35, -19, 3, 21, 29, 28, 20};
+const int16_t FIR_SSB_I_coeffs[FIR_SSB_num_taps] = { -3, -16, -33, -52, -63, -63, -48, -25, -5, -4, -30, -85, -157, -221, -253, -233, -163, -66, 17, 41, -20, -164, -349, -506, -561, -468, -231, 83, 365, 496, 395, 65, -392, -791, -915, -586, 264, 1549, 3035, 4388, 5262, 5400, 4710, 3298, 1448, -458, -2043, -3030, -3312, -2964, -2203, -1314, -559, -108, -8, -185, -496, -780, -922, -878, -676, -399, -141, 25, 72, 16, -93, -196, -250, -237, -167, -72, 15, 68, 80, 57, 18, -17, -36, -35, -19, 3, 21, 29, 28, 20};
 // -45°, 86 taps, Fc=1.33kHz, BW=1.92kHz, Kaiser beta = 1.8, raised cosine 0.88
-const int16_t FIR_Q_coeffs[FIR_SSB_num_taps] = {20, 28, 29, 21, 3, -19, -35, -36, -17, 18, 57, 80, 68, 15, -72, -167, -237, -250, -196, -93, 16, 72, 25, -141, -399, -676, -878, -922, -780, -496, -185, -8, -108, -559, -1314, -2203, -2964, -3312, -3030, -2043, -458, 1448, 3298, 4710, 5400, 5262, 4388, 3035, 1549, 264, -586, -915, -791, -392, 65, 395, 496, 365, 83, -231, -468, -561, -506, -349, -164, -20, 41, 17, -66, -163, -233, -253, -221, -157, -85, -30, -4, -5, -25, -48, -63, -63, -52, -33, -16, -3};
+const int16_t FIR_SSB_Q_coeffs[FIR_SSB_num_taps] = {20, 28, 29, 21, 3, -19, -35, -36, -17, 18, 57, 80, 68, 15, -72, -167, -237, -250, -196, -93, 16, 72, 25, -141, -399, -676, -878, -922, -780, -496, -185, -8, -108, -559, -1314, -2203, -2964, -3312, -3030, -2043, -458, 1448, 3298, 4710, 5400, 5262, 4388, 3035, 1549, 264, -586, -915, -791, -392, 65, 395, 496, 365, 83, -231, -468, -561, -506, -349, -164, -20, 41, 17, -66, -163, -233, -253, -221, -157, -85, -30, -4, -5, -25, -48, -63, -63, -52, -33, -16, -3};
 
-// AM, 66 taps, cutoff = 4kHz, 24ksps sample rate
-//const int16_t FIR_AM_coeffs[FIR_AM_num_taps] = {-2,8,22,24,-2,-39,-44,10,77,72,-33,-141,-106,82,234,135,-177,-367,-146,337,544,113,-610,-788,4,1088,1155,-327,-2125,-1949,1486,6886,10973,10973,6886,1486,-1949,-2125,-327,1155,1088,4,-788,-610,113,544,337,-146,-367,-177,135,234,82,-106,-141,-33,72,77,10,-44,-39,-2,24,22,8,-2};
 // narrow filters for CW (morse signals) and digital signals (DCF77 etc.)
 // centre your signal of interest at 800Hz !!!
 // +45°, 86 taps, Fc=800Hz, BW=400Hz, Kaiser beta = 1.8, raised cosine 0.88
-//const int16_t FIR_I_coeffs[FIR_SSB_num_taps] = {6,1,-5,-12,-18,-22,-24,-21,-14,-3,12,29,44,54,54,41,11,-40,-112,-204,-314,-435,-558,-673,-769,-832,-851,-818,-724,-567,-349,-77,236,575,919,1247,1537,1767,1920,1983,1949,1817,1593,1290,925,521,103,-306,-680,-1000,-1250,-1419,-1504,-1505,-1431,-1294,-1108,-891,-660,-432,-222,-39,107,215,283,315,315,292,252,204,153,106,66,35,14,3,-1,2,8,15,21,26,29,29,27,23};
+const int16_t FIR_CW_I_coeffs[FIR_SSB_num_taps] = {6, 1, -5, -12, -18, -22, -24, -21, -14, -3, 12, 29, 44, 54, 54, 41, 11, -40, -112, -204, -314, -435, -558, -673, -769, -832, -851, -818, -724, -567, -349, -77, 236, 575, 919, 1247, 1537, 1767, 1920, 1983, 1949, 1817, 1593, 1290, 925, 521, 103, -306, -680, -1000, -1250, -1419, -1504, -1505, -1431, -1294, -1108, -891, -660, -432, -222, -39, 107, 215, 283, 315, 315, 292, 252, 204, 153, 106, 66, 35, 14, 3, -1, 2, 8, 15, 21, 26, 29, 29, 27, 23};
 // -45°, 86 taps, Fc=800Hz, BW=400Hz, Kaiser beta = 1.8, raised cosine 0.88
-//const int16_t FIR_Q_coeffs[FIR_SSB_num_taps] = {23,27,29,29,26,21,15,8,2,-1,3,14,35,66,106,153,204,252,292,315,315,283,215,107,-39,-222,-432,-660,-891,-1108,-1294,-1431,-1505,-1504,-1419,-1250,-1000,-680,-306,103,521,925,1290,1593,1817,1949,1983,1920,1767,1537,1247,919,575,236,-77,-349,-567,-724,-818,-851,-832,-769,-673,-558,-435,-314,-204,-112,-40,11,41,54,54,44,29,12,-3,-14,-21,-24,-22,-18,-12,-5,1,6};
+const int16_t FIR_CW_Q_coeffs[FIR_SSB_num_taps] = {23, 27, 29, 29, 26, 21, 15, 8, 2, -1, 3, 14, 35, 66, 106, 153, 204, 252, 292, 315, 315, 283, 215, 107, -39, -222, -432, -660, -891, -1108, -1294, -1431, -1505, -1504, -1419, -1250, -1000, -680, -306, 103, 521, 925, 1290, 1593, 1817, 1949, 1983, 1920, 1767, 1537, 1247, 919, 575, 236, -77, -349, -567, -724, -818, -851, -832, -769, -673, -558, -435, -314, -204, -112, -40, 11, 41, 54, 54, 44, 29, 12, -3, -14, -21, -24, -22, -18, -12, -5, 1, 6};
 
 unsigned long time_needed     = 0;
 unsigned long time_needed_max = 0;
@@ -176,6 +172,7 @@ void initEEPROM(void) {
 	if ( (crc != settings.crc) || (settings.version != EEPROM_STORAGE_VERSION) ) {
 		//Init default values:
 		memcpy(&settings, &settings_default, sizeof(settings_t));
+		loadLastSettings();
 		EEPROMsaveSettings();
 		Serial.println("EEPROM initialized.");
 	}
@@ -203,6 +200,7 @@ void initEEPROM(void) {
 void loadLastSettings(void) {
 
 	if (settings.lastFreq != 0) {
+		Serial.println("load manual");
 		freq = settings.lastFreq;
 		mode = settings.lastMode;
 		ANR_on = settings.lastNotch;
@@ -576,10 +574,10 @@ unsigned long demodulation(void) {
 		arm_fir_fast_q15(&FIR_I, I_buffer, I_FIR_out, AUDIO_BLOCK_SAMPLES);
 		arm_fir_fast_q15(&FIR_Q, Q_buffer, Q_FIR_out, AUDIO_BLOCK_SAMPLES);
 
-		//arm_copy_q15(I_FIR_out, I_buffer, AUDIO_BLOCK_SAMPLES);
-		//arm_copy_q15(Q_FIR_out, Q_buffer, AUDIO_BLOCK_SAMPLES);
-		memcpy(I_buffer, I_FIR_out, sizeof(I_buffer));
-		memcpy(Q_buffer, Q_FIR_out, sizeof(Q_buffer));
+		arm_copy_q15(I_FIR_out, I_buffer, AUDIO_BLOCK_SAMPLES);
+		arm_copy_q15(Q_FIR_out, Q_buffer, AUDIO_BLOCK_SAMPLES);
+		//memcpy(I_buffer, I_FIR_out, sizeof(I_buffer));
+		//memcpy(Q_buffer, Q_FIR_out, sizeof(Q_buffer));
 	}
 	/*
 	   - demodulation
@@ -606,6 +604,7 @@ unsigned long demodulation(void) {
 	}
 		//-------------------------------------------------------
 #if defined(__MK64FX512__) || defined(__MK66FX1M0__)
+	case CW:
 	case AM: {
 		float32_t audio;
 
@@ -616,6 +615,7 @@ unsigned long demodulation(void) {
 		break;
 	}
 #else
+	case CW:
 	case SYNCAM:
 	case AM: {
 		q31_t audio;
@@ -899,16 +899,21 @@ float32_t Izero (float32_t x)
 } // END Izero
 
 void init_FIR(void) {
+	memset(FIR_I_state, 0, sizeof(FIR_I_state));
+	memset(FIR_Q_state, 0, sizeof(FIR_Q_state));
 	switch (mode) {
 	case USB:
-		arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
-		arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
+		arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_SSB_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
+		arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_SSB_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
 		break;
 	case LSB:
-		arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
-		arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
+		arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_SSB_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
+		arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_SSB_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
 		break;
-
+	case CW:
+		arm_fir_init_q15(&FIR_I, FIR_SSB_num_taps, (q15_t *)FIR_CW_I_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
+		arm_fir_init_q15(&FIR_Q, FIR_SSB_num_taps, (q15_t *)FIR_CW_Q_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
+		break;
 	case AM:
 		arm_fir_init_q15(&FIR_I, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_I_state[0], AUDIO_BLOCK_SAMPLES);
 		arm_fir_init_q15(&FIR_Q, FIR_AM_num_taps, (q15_t *)FIR_AM_coeffs, &FIR_Q_state[0], AUDIO_BLOCK_SAMPLES);
