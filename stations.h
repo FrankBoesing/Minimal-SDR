@@ -1,11 +1,11 @@
 #ifndef sdr_stations_h_
 #define sdr_stations_h_
 
-enum  { SYNCAM, AM, LSB, USB };
-const char modestr[][5] = {"SAM", "AM", "LSB", "USB"};
+enum  { SYNCAM, AM, LSB, USB, CW };
+const char modestr[][5] = {"SAM", "AM", "LSB", "USB", "CW"};
 
 #define MAX_EMEMORY 26
-#define EEPROM_STORAGE_VERSION 6
+#define EEPROM_STORAGE_VERSION 7
 
 typedef struct {
 	int freq;
@@ -58,9 +58,9 @@ const settings_t settings_default =
 		/*  v */ {6040000, SYNCAM, 1, 0,  "Radio Romania Intl"},
 		/*  w */ {9420000, SYNCAM, 1, 0,  "Greece"},
 
-		/*  x */ { 129100, SYNCAM, 1, 600,  "DCF49"},
+		/*  x */ { 129100, CW,     0, 600,  "DCF49"},
 		/*  y */ {9995500, SYNCAM, 0, 600, "Russian time signal"},
-		/*  z */ {  77500, AM,     0, 600,  "DCF77"}
+		/*  z */ {  77500, CW,     0, 600,  "DCF77"}
 	},
 	/* version    */ EEPROM_STORAGE_VERSION,
 	/* crc        */ 0x4711

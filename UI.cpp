@@ -100,7 +100,8 @@ const char menu[][menuMaxX][menuMaxStrlen] = {
 	{"Memory",       "SAM",  "Off",              "Bandwidth",   /*  "Bandwidth",  */ "Save now"},
 	{"Step 1 kHz",   "AM",   "Notch",            "# of Taps",   /*  "# of Taps",  */ ""},
 	{"Step 0.1 kHz", "LSB",  "Noise",            "",            /*  "",           */ ""},
-	{"",             "USB",  "",                 "",            /*  "",           */ ""}
+	{"",             "USB",  "",                 "",            /*  "",           */ ""},
+	{"",             "CW",   "",                 "",            /*  "",           */ ""}
 };
 const int menuMaxY = sizeof(menu) / menuMaxX / menuMaxStrlen;
 
@@ -110,6 +111,7 @@ const mf_t menufunc[menuMaxY * menuMaxX] = {
 	_mTune,         _mMode,  _mANR,              _mBandwAM,     /*    NULL,   */ _mSave,
 	_mTune,         _mMode,  _mANR,              _mBandwAM,     /*    NULL,   */ NULL,
 	_mTune,         _mMode,  _mANR,              NULL,          /*    NULL,   */ NULL,
+	NULL,           _mMode,  NULL,               NULL,          /*    NULL,   */ NULL,
 	NULL,           _mMode,  NULL,               NULL,          /*    NULL,   */ NULL
 };
 
